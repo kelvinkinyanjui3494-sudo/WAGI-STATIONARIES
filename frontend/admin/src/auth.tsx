@@ -18,7 +18,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [])
 
   const login = async (email: string, password: string) => {
-    const res = await api.post('/api/auth/login', { email, password, device_name: 'admin-dashboard' })
+    const res = await api.post('/api/login', {
+  email,
+  password,
+  device_name: 'admin-dashboard',
+})
     const data = res.data
     localStorage.setItem('wagi_admin_token', data.token)
     localStorage.setItem('wagi_admin_user', JSON.stringify(data.user))

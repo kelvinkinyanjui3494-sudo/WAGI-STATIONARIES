@@ -105,7 +105,7 @@ CREATE TABLE `orders` (
 CREATE TABLE `order_items` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `order_id` bigint unsigned NOT NULL,
-  `product_id` bigint unsigned NOT NULL,
+  `product_id` bigint unsigned DEFAULT NULL,
   `product_name` varchar(255) NOT NULL,
   `sku` varchar(100) DEFAULT NULL,
   `quantity` int NOT NULL,
