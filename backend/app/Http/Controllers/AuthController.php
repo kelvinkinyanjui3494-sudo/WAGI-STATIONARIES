@@ -10,11 +10,22 @@ use App\Models\User;
 
 class AuthController extends Controller
 {
+    /**
+     * Register a new customer account.
+     * 
+     * Required fields:
+     * - name: Customer's full name
+     * - email: Unique email address
+     * - phone: Required phone number (Kenyan format)
+     * - password: Secure password (min 8 characters)
+     * - password_confirmation: Password confirmation
+     */
     public function register(Request $request)
     {
         $v = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
+            'phone' => 'required|string|max:30',
             'password' => 'required|string|min:8|confirmed',
         ]);
 
@@ -25,6 +36,7 @@ class AuthController extends Controller
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
+            'phone' => $request->phone,
             'password' => Hash::make($request->password),
             'role' => 'customer',
         ]);
@@ -36,6 +48,16 @@ class AuthController extends Controller
         return response()->json(['user' => $user, 'token' => $token], 201);
     }
 
+    /**
+     * Authenticate a customer and issue an API token.
+     * 
+     * Required fields:
+     * - email: Customer's email address
+     * - password: Customer's password
+     * 
+     * Optional fields:
+     * - device_name: Device identifier for token management
+     */
     public function login(Request $request)
     {
         $v = Validator::make($request->all(), [
@@ -63,6 +85,11 @@ class AuthController extends Controller
         return response()->json(['user' => $user, 'token' => $token]);
     }
 
+    /**
+     * Logout the authenticated customer.
+     * 
+     * Revokes the current API token.
+     */
     public function logout(Request $request)
     {
         $user = $request->user();
@@ -71,11 +98,22 @@ class AuthController extends Controller
         return response()->json(['message' => 'Logged out']);
     }
 
+    /**
+     * Get the authenticated customer's profile.
+     */
     public function me(Request $request)
     {
         return response()->json($request->user());
     }
 
+    /**
+     * Change the authenticated customer's password.
+     * 
+     * Required fields:
+     * - current_password: Current password for verification
+     * - new_password: New password (min 8 characters)
+     * - new_password_confirmation: Password confirmation
+     */
     public function changePassword(Request $request)
     {
         $v = Validator::make($request->all(), [
