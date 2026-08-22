@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\CartController;
 use App\Http\Controllers\CheckoutController;
@@ -25,6 +26,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/change-password', [AuthController::class, 'changePassword']);
 });
 Route::get('/products/{id}', [ProductController::class, 'show']);
+// Email verification
+Route::get(
+    '/email/verify/{id}/{hash}',
+    [EmailVerificationController::class, 'verify']
+)->name('verification.verify')->middleware('signed');
+
+Route::post(
+    '/email/resend',
+    [EmailVerificationController::class, 'resend']
+);
        
 /*
 |--------------------------------------------------------------------------

@@ -4,21 +4,14 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use App\Models\User;
+use App\Notifications\CustomerVerifyEmail;
 
 class AuthController extends Controller
 {
     /**
      * Register a new customer account.
-     * 
-     * Required fields:
-     * - name: Customer's full name
-     * - email: Unique email address
-     * - phone: Required phone number (Kenyan format)
-     * - password: Secure password (min 8 characters)
-     * - password_confirmation: Password confirmation
      */
     public function register(Request $request)
     {
@@ -30,7 +23,9 @@ class AuthController extends Controller
         ]);
 
         if ($v->fails()) {
-            return response()->json(['errors' => $v->errors()], 422);
+            return response()->json([
+                'errors' => $v->errors(),
+            ], 422);
         }
 
         $user = User::create([
@@ -41,22 +36,18 @@ class AuthController extends Controller
             'role' => 'customer',
         ]);
 
-        // Optionally send email verification (omitted until mail config is provided)
+        // Send email verification notification.
+        $user->notify(new CustomerVerifyEmail());
 
-        $token = $user->createToken('api_token')->plainTextToken;
-
-        return response()->json(['user' => $user, 'token' => $token], 201);
+        return response()->json([
+            'message' => 'Account created successfully. Please verify your email address before signing in.',
+            'user' => $user,
+            'email_verified' => false,
+        ], 201);
     }
 
     /**
      * Authenticate a customer and issue an API token.
-     * 
-     * Required fields:
-     * - email: Customer's email address
-     * - password: Customer's password
-     * 
-     * Optional fields:
-     * - device_name: Device identifier for token management
      */
     public function login(Request $request)
     {
@@ -67,35 +58,53 @@ class AuthController extends Controller
         ]);
 
         if ($v->fails()) {
-            return response()->json(['errors' => $v->errors()], 422);
+            return response()->json([
+                'errors' => $v->errors(),
+            ], 422);
         }
 
         $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
-            return response()->json(['message' => 'Invalid credentials'], 401);
+            return response()->json([
+                'message' => 'Invalid credentials',
+            ], 401);
         }
 
-        // Revoke existing tokens for single-session policies if required
+        // Customers must verify their email before signing in.
+        // Administrators are not blocked by email verification.
+        if (
+            $user->role === 'customer' &&
+            !$user->hasVerifiedEmail()
+        ) {
+            return response()->json([
+                'message' => 'Please verify your email address before signing in.',
+                'email_verified' => false,
+            ], 403);
+        }
+
+        // Revoke existing tokens for single-session policies if required.
         // $user->tokens()->delete();
 
         $device = $request->input('device_name', 'default');
         $token = $user->createToken($device)->plainTextToken;
 
-        return response()->json(['user' => $user, 'token' => $token]);
+        return response()->json([
+            'user' => $user,
+            'token' => $token,
+        ]);
     }
 
     /**
      * Logout the authenticated customer.
-     * 
-     * Revokes the current API token.
      */
     public function logout(Request $request)
     {
-        $user = $request->user();
-        // Revoke current access token
         $request->user()->currentAccessToken()->delete();
-        return response()->json(['message' => 'Logged out']);
+
+        return response()->json([
+            'message' => 'Logged out',
+        ]);
     }
 
     /**
@@ -108,11 +117,6 @@ class AuthController extends Controller
 
     /**
      * Change the authenticated customer's password.
-     * 
-     * Required fields:
-     * - current_password: Current password for verification
-     * - new_password: New password (min 8 characters)
-     * - new_password_confirmation: Password confirmation
      */
     public function changePassword(Request $request)
     {
@@ -122,18 +126,24 @@ class AuthController extends Controller
         ]);
 
         if ($v->fails()) {
-            return response()->json(['errors' => $v->errors()], 422);
+            return response()->json([
+                'errors' => $v->errors(),
+            ], 422);
         }
 
         $user = $request->user();
 
         if (!Hash::check($request->current_password, $user->password)) {
-            return response()->json(['message' => 'Current password is incorrect'], 403);
+            return response()->json([
+                'message' => 'Current password is incorrect',
+            ], 403);
         }
 
         $user->password = Hash::make($request->new_password);
         $user->save();
 
-        return response()->json(['message' => 'Password changed successfully']);
+        return response()->json([
+            'message' => 'Password changed successfully',
+        ]);
     }
 }
