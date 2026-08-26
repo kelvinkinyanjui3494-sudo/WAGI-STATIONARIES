@@ -1,12 +1,15 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Models\Coupon;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\CartController;
 use App\Http\Controllers\CheckoutController;
 use App\Http\Controllers\AdminOrderController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Admin\AdminCategoriesController;
 use App\Http\Controllers\Admin\AdminCustomersController;
 use App\Http\Controllers\Admin\AdminNotificationsController;
@@ -15,6 +18,7 @@ use App\Http\Controllers\Admin\AdminProductsController;
 use App\Http\Controllers\Admin\AdminReportsController;
 use App\Http\Controllers\Admin\AdminStatsController;
 use App\Http\Controllers\Admin\InventoryController;
+use App\Http\Controllers\WishlistController;
 
 /*
 |--------------------------------------------------------------------------
@@ -35,11 +39,58 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
+
+    // Customer profile
+    Route::get('/profile', [ProfileController::class, 'show']);
+    Route::put('/profile', [ProfileController::class, 'update']);
+
+    // Customer notifications
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead']);
 });
+
+// Wishlist
+Route::get('/wishlist', [WishlistController::class, 'index']);
+Route::post('/wishlist', [WishlistController::class, 'store']);
+Route::delete('/wishlist/{productId}', [WishlistController::class, 'destroy']);
+
+// Public Categories
+Route::get('/categories', [AdminCategoriesController::class, 'index']);
 
 // Products
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
+
+// Store Settings
+Route::get('/store-settings', function () {
+    return response()->json([
+        'delivery_fee' => 0,
+        'free_delivery_threshold' => 0,
+        'tax_rate' => 0,
+        'mpesa_phone' => null,
+    ]);
+});
+
+// Coupons
+Route::get('/coupons/{code}', function ($code) {
+    $coupon = Coupon::where('code', strtoupper($code))
+        ->where(function ($query) {
+            $query->whereNull('expires_at')
+                ->orWhere('expires_at', '>=', now());
+        })
+        ->first();
+
+    if (!$coupon) {
+        return response()->json([
+            'message' => 'Coupon not found or no longer active'
+        ], 404);
+    }
+
+    return response()->json([
+        'coupon' => $coupon
+    ]);
+});
 
 // Cart
 Route::get('/cart', [CartController::class, 'index']);
@@ -48,7 +99,10 @@ Route::put('/cart/{id}', [CartController::class, 'update']);
 Route::delete('/cart/{id}', [CartController::class, 'destroy']);
 
 // Checkout
-Route::post('/checkout', [CheckoutController::class, 'store']);
+Route::middleware('auth:sanctum')->post(
+    '/checkout',
+    [CheckoutController::class, 'checkout']
+);
 
 // Orders
 Route::get('/orders', [AdminOrderController::class, 'index']);
