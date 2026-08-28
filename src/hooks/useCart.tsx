@@ -7,14 +7,33 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import type { CartLine, Product } from "@/lib/db-types";
 import { effectivePrice } from "@/lib/format";
 
 const GUEST_KEY = "wagi_guest_cart_v1";
 
-type GuestLine = { productId: string; quantity: number; savedForLater: boolean };
+type GuestLine = {
+  productId: string;
+  quantity: number;
+  savedForLater: boolean;
+};
+
+type LaravelCartItem = {
+  product_id: string | number;
+  sku: string;
+  name: string;
+  unit_price: number;
+  quantity: number;
+  saved_for_later?: boolean;
+};
+
+type LaravelCart = {
+  id: number | string;
+  user_id: number | string;
+  items: LaravelCartItem[];
+};
 
 type CartContextValue = {
   lines: CartLine[];
@@ -35,6 +54,7 @@ const CartContext = createContext<CartContextValue | undefined>(undefined);
 
 function readGuestCart(): GuestLine[] {
   if (typeof window === "undefined") return [];
+
   try {
     const raw = window.localStorage.getItem(GUEST_KEY);
     return raw ? (JSON.parse(raw) as GuestLine[]) : [];
@@ -45,11 +65,21 @@ function readGuestCart(): GuestLine[] {
 
 function writeGuestCart(lines: GuestLine[]) {
   if (typeof window === "undefined") return;
+
   window.localStorage.setItem(GUEST_KEY, JSON.stringify(lines));
+}
+
+function cartItemsToGuestLines(items: LaravelCartItem[]): GuestLine[] {
+  return items.map((item) => ({
+    productId: String(item.product_id),
+    quantity: Number(item.quantity),
+    savedForLater: Boolean(item.saved_for_later),
+  }));
 }
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth();
+
   const [raw, setRaw] = useState<GuestLine[]>([]);
   const [products, setProducts] = useState<Record<string, Product>>({});
   const [loading, setLoading] = useState(true);
@@ -61,98 +91,138 @@ export function CartProvider({ children }: { children: ReactNode }) {
       setProducts({});
       return;
     }
-    const { data } = await supabase.from("products").select("*").in("id", ids);
+
+    const uniqueIds = [...new Set(ids)];
+
+    const results = await Promise.all(
+      uniqueIds.map(async (id) => {
+        try {
+          return await apiFetch<Product>(`/products/${id}`);
+        } catch {
+          return null;
+        }
+      }),
+    );
+
     const map: Record<string, Product> = {};
-    for (const p of data ?? []) map[p.id] = p;
+
+    for (const product of results) {
+      if (product) {
+        map[String(product.id)] = product;
+      }
+    }
+
     setProducts(map);
   }, []);
 
-  /** Loads the cart from the database (signed in) or local storage (guest). */
+  /**
+   * Loads the cart from Laravel when signed in
+   * or local storage when browsing as a guest.
+   */
   const load = useCallback(async () => {
     setLoading(true);
-    if (userId) {
-      const guest = readGuestCart();
-      if (guest.length > 0) {
-        // Merge the guest cart into the account on sign-in.
+
+    try {
+      if (userId) {
+        const guest = readGuestCart();
+
+        /*
+         * Merge the guest cart into the Laravel account
+         * when the customer signs in.
+         */
         for (const line of guest) {
-          const { data: existing } = await supabase
-            .from("cart_items")
-            .select("id, quantity")
-            .eq("user_id", userId)
-            .eq("product_id", line.productId)
-            .maybeSingle();
-          if (existing) {
-            await supabase
-              .from("cart_items")
-              .update({ quantity: existing.quantity + line.quantity })
-              .eq("id", existing.id);
-          } else {
-            await supabase.from("cart_items").insert({
-              user_id: userId,
+          await apiFetch<LaravelCart>("/cart", {
+            method: "POST",
+            body: JSON.stringify({
               product_id: line.productId,
               quantity: line.quantity,
-              saved_for_later: line.savedForLater,
-            });
-          }
+            }),
+          });
         }
-        writeGuestCart([]);
+
+        if (guest.length > 0) {
+          writeGuestCart([]);
+        }
+
+        const cart = await apiFetch<LaravelCart>("/cart");
+
+        const next = cartItemsToGuestLines(cart.items ?? []);
+
+        setRaw(next);
+
+        await hydrateProducts(next.map((item) => item.productId));
+      } else {
+        const guest = readGuestCart();
+
+        setRaw(guest);
+
+        await hydrateProducts(
+          guest.map((item) => item.productId),
+        );
       }
-      const { data } = await supabase
-        .from("cart_items")
-        .select("product_id, quantity, saved_for_later")
-        .eq("user_id", userId);
-      const next = (data ?? []).map((r) => ({
-        productId: r.product_id,
-        quantity: r.quantity,
-        savedForLater: r.saved_for_later,
-      }));
-      setRaw(next);
-      await hydrateProducts(next.map((n) => n.productId));
-    } else {
-      const guest = readGuestCart();
-      setRaw(guest);
-      await hydrateProducts(guest.map((n) => n.productId));
+    } catch (error) {
+      console.error("Failed to load cart:", error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [userId, hydrateProducts]);
 
   useEffect(() => {
     if (authLoading) return;
+
     void load();
   }, [authLoading, load]);
 
   const persist = useCallback(
     async (next: GuestLine[]) => {
       setRaw(next);
-      if (!userId) writeGuestCart(next);
-      await hydrateProducts(next.map((n) => n.productId));
+
+      if (!userId) {
+        writeGuestCart(next);
+      }
+
+      await hydrateProducts(
+        next.map((item) => item.productId),
+      );
     },
     [userId, hydrateProducts],
   );
 
   const addItem = useCallback(
     async (productId: string, quantity = 1) => {
-      const existing = raw.find((l) => l.productId === productId);
+      const existing = raw.find(
+        (line) => line.productId === productId,
+      );
+
       const next = existing
-        ? raw.map((l) =>
-            l.productId === productId
-              ? { ...l, quantity: l.quantity + quantity, savedForLater: false }
-              : l,
+        ? raw.map((line) =>
+            line.productId === productId
+              ? {
+                  ...line,
+                  quantity: line.quantity + quantity,
+                  savedForLater: false,
+                }
+              : line,
           )
-        : [...raw, { productId, quantity, savedForLater: false }];
+        : [
+            ...raw,
+            {
+              productId,
+              quantity,
+              savedForLater: false,
+            },
+          ];
+
       await persist(next);
+
       if (userId) {
-        if (existing) {
-          await supabase
-            .from("cart_items")
-            .update({ quantity: existing.quantity + quantity, saved_for_later: false })
-            .eq("user_id", userId)
-            .eq("product_id", productId);
-        } else {
-          await supabase
-            .from("cart_items")
-            .insert({ user_id: userId, product_id: productId, quantity });
-        }
+        await apiFetch<LaravelCart>("/cart", {
+          method: "POST",
+          body: JSON.stringify({
+            product_id: productId,
+            quantity,
+          }),
+        });
       }
     },
     [raw, persist, userId],
@@ -161,13 +231,25 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const setQuantity = useCallback(
     async (productId: string, quantity: number) => {
       if (quantity < 1) return;
-      await persist(raw.map((l) => (l.productId === productId ? { ...l, quantity } : l)));
+
+      await persist(
+        raw.map((line) =>
+          line.productId === productId
+            ? { ...line, quantity }
+            : line,
+        ),
+      );
+
       if (userId) {
-        await supabase
-          .from("cart_items")
-          .update({ quantity })
-          .eq("user_id", userId)
-          .eq("product_id", productId);
+        await apiFetch<LaravelCart>(
+          `/cart/${productId}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              quantity,
+            }),
+          },
+        );
       }
     },
     [raw, persist, userId],
@@ -175,13 +257,19 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const removeItem = useCallback(
     async (productId: string) => {
-      await persist(raw.filter((l) => l.productId !== productId));
+      await persist(
+        raw.filter(
+          (line) => line.productId !== productId,
+        ),
+      );
+
       if (userId) {
-        await supabase
-          .from("cart_items")
-          .delete()
-          .eq("user_id", userId)
-          .eq("product_id", productId);
+        await apiFetch<LaravelCart>(
+          `/cart/${productId}`,
+          {
+            method: "DELETE",
+          },
+        );
       }
     },
     [raw, persist, userId],
@@ -189,55 +277,96 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const setSavedForLater = useCallback(
     async (productId: string, saved: boolean) => {
+      /*
+       * The Laravel cart currently stores the cart items
+       * as JSON and does not expose a dedicated
+       * saved-for-later endpoint.
+       *
+       * We therefore preserve this behavior locally
+       * for now while keeping the existing UI/API intact.
+       */
       await persist(
-        raw.map((l) => (l.productId === productId ? { ...l, savedForLater: saved } : l)),
+        raw.map((line) =>
+          line.productId === productId
+            ? {
+                ...line,
+                savedForLater: saved,
+              }
+            : line,
+        ),
       );
-      if (userId) {
-        await supabase
-          .from("cart_items")
-          .update({ saved_for_later: saved })
-          .eq("user_id", userId)
-          .eq("product_id", productId);
-      }
     },
-    [raw, persist, userId],
+    [raw, persist],
   );
 
   const clearCart = useCallback(async () => {
+    const current = [...raw];
+
     await persist([]);
-    if (userId) await supabase.from("cart_items").delete().eq("user_id", userId);
-  }, [persist, userId]);
+
+    if (userId) {
+      await Promise.all(
+        current.map((line) =>
+          apiFetch<LaravelCart>(
+            `/cart/${line.productId}`,
+            {
+              method: "DELETE",
+            },
+          ),
+        ),
+      );
+    }
+  }, [raw, persist, userId]);
 
   const lines = useMemo<CartLine[]>(
     () =>
       raw
-        .filter((l) => products[l.productId])
-        .map((l) => ({
-          productId: l.productId,
-          quantity: l.quantity,
-          savedForLater: l.savedForLater,
-          product: products[l.productId]!,
+        .filter((line) => products[line.productId])
+        .map((line) => ({
+          productId: line.productId,
+          quantity: line.quantity,
+          savedForLater: line.savedForLater,
+          product: products[line.productId]!,
         })),
     [raw, products],
   );
 
-  const activeLines = useMemo(() => lines.filter((l) => !l.savedForLater), [lines]);
-  const savedLines = useMemo(() => lines.filter((l) => l.savedForLater), [lines]);
+  const activeLines = useMemo(
+    () => lines.filter((line) => !line.savedForLater),
+    [lines],
+  );
+
+  const savedLines = useMemo(
+    () => lines.filter((line) => line.savedForLater),
+    [lines],
+  );
 
   const value = useMemo<CartContextValue>(
     () => ({
       lines,
       activeLines,
       savedLines,
-      count: activeLines.reduce((sum, l) => sum + l.quantity, 0),
-      subtotal: activeLines.reduce((sum, l) => sum + effectivePrice(l.product) * l.quantity, 0),
+      count: activeLines.reduce(
+        (sum, line) => sum + line.quantity,
+        0,
+      ),
+      subtotal: activeLines.reduce(
+        (sum, line) =>
+          sum +
+          effectivePrice(line.product) *
+            line.quantity,
+        0,
+      ),
       loading,
       addItem,
       setQuantity,
       removeItem,
       setSavedForLater,
       clearCart,
-      isInCart: (productId: string) => raw.some((l) => l.productId === productId),
+      isInCart: (productId: string) =>
+        raw.some(
+          (line) => line.productId === productId,
+        ),
     }),
     [
       lines,
@@ -253,11 +382,21 @@ export function CartProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
+  return (
+    <CartContext.Provider value={value}>
+      {children}
+    </CartContext.Provider>
+  );
 }
 
 export function useCart(): CartContextValue {
   const ctx = useContext(CartContext);
-  if (!ctx) throw new Error("useCart must be used inside <CartProvider>");
+
+  if (!ctx) {
+    throw new Error(
+      "useCart must be used inside <CartProvider>",
+    );
+  }
+
   return ctx;
 }

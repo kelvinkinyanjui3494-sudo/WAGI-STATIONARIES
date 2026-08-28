@@ -3,7 +3,9 @@
 namespace App\Models;
 
 use Illuminate\Contracts\Database\Eloquent\Castable;
+use App\Models\Address;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Laravel\Sanctum\HasApiTokens;
 
@@ -31,7 +33,12 @@ class User extends Authenticatable
     ];
 
     public function isAdmin(): bool
-    {
-        return $this->role === 'admin';
-    }
+{
+    return $this->role === 'admin';
+}
+
+public function addresses(): HasMany
+{
+    return $this->hasMany(Address::class);
+}
 }

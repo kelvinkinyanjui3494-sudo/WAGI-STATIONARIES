@@ -6,6 +6,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\CartController;
 use App\Http\Controllers\CheckoutController;
+use App\Http\Controllers\OrderController;
 use App\Http\Controllers\AdminOrderController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\NotificationController;
@@ -103,10 +104,11 @@ Route::middleware('auth:sanctum')->post(
     '/checkout',
     [CheckoutController::class, 'checkout']
 );
-
-// Orders
-Route::get('/orders', [AdminOrderController::class, 'index']);
-Route::get('/orders/{id}', [AdminOrderController::class, 'show']);
+// Customer Orders
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/orders', [OrderController::class, 'index']);
+    Route::get('/orders/{id}', [OrderController::class, 'show']);
+});
 
 /*
 |--------------------------------------------------------------------------

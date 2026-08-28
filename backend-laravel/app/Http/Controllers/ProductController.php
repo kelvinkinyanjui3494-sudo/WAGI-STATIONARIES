@@ -13,21 +13,82 @@ class ProductController extends Controller
     // List products with basic pagination and search
     public function index(Request $request)
     {
-        $q = $request->query('q');
         $query = Product::query();
 
-        if ($q) {
-            $query->where('name', 'like', "%{$q}%")->orWhere('sku', 'like', "%{$q}%");
+        // Search
+        if ($request->filled('q')) {
+            $q = $request->query('q');
+
+            $query->where(function ($query) use ($q) {
+                $query->where('name', 'like', "%{$q}%")
+                    ->orWhere('sku', 'like', "%{$q}%");
+            });
         }
 
-        $products = $query->with('images')->paginate(20);
+        // Category filter
+        if ($request->filled('category')) {
+            $query->where('category_id', $request->query('category'));
+        }
+
+        // Minimum price
+        if ($request->filled('min')) {
+            $query->where('price', '>=', $request->query('min'));
+        }
+
+        // Maximum price
+        if ($request->filled('max')) {
+            $query->where('price', '<=', $request->query('max'));
+        }
+
+        // In-stock filter
+        if ($request->boolean('inStock')) {
+            $query->where('stock_qty', '>', 0);
+        }
+
+        // Sorting
+        switch ($request->query('sort', 'newest')) {
+            case 'price_asc':
+                $query->orderBy('price', 'asc');
+                break;
+
+            case 'price_desc':
+                $query->orderBy('price', 'desc');
+                break;
+
+            case 'rating':
+                $query->orderBy('rating', 'desc');
+                break;
+
+            case 'popular':
+                $query->orderBy('rating', 'desc');
+                break;
+
+            case 'newest':
+            default:
+                $query->orderBy('created_at', 'desc');
+                break;
+        }
+
+        $perPage = min(
+            max((int) $request->query('per_page', 12), 1),
+            100
+        );
+
+        $products = $query
+            ->with('images')
+            ->paginate($perPage);
 
         return response()->json($products);
     }
 
+    // Show a single product
     public function show($id)
     {
-        $product = Product::with('images')->findOrFail($id);
+        $product = Product::with([
+            'images',
+            'category',
+        ])->findOrFail($id);
+
         return response()->json($product);
     }
 
@@ -75,27 +136,27 @@ class ProductController extends Controller
         $product = Product::findOrFail($id);
 
         $request->validate([
-            'image' => 'required|image|max:5120', // max 5MB
+            'image' => 'required|image|max:5120',
             'is_primary' => 'sometimes|boolean',
-            'alt' => 'sometimes|string|max:255'
+            'alt' => 'sometimes|string|max:255',
         ]);
 
         $file = $request->file('image');
 
         // Create directory by SKU for organization
-        $sku = $product->sku ?? 'product_'.$product->id;
+        $sku = $product->sku ?? 'product_' . $product->id;
         $path = "products/{$sku}";
 
         // Unique filename
         $filename = time() . '_' . Str::random(8) . '.' . $file->getClientOriginalExtension();
 
-        // Store file on 'public' disk
+        // Store file on public disk
         $storedPath = $file->storeAs($path, $filename, 'public');
 
-        // Get public URL (requires php artisan storage:link)
+        // Get public URL
         $url = Storage::disk('public')->url($storedPath);
 
-        // Create DB record
+        // Create database record
         $image = ProductImage::create([
             'product_id' => $product->id,
             'path' => $storedPath,
@@ -118,7 +179,10 @@ class ProductController extends Controller
     public function deleteImage(Request $request, $id, $imageId)
     {
         $product = Product::findOrFail($id);
-        $image = ProductImage::where('product_id', $product->id)->where('id', $imageId)->firstOrFail();
+
+        $image = ProductImage::where('product_id', $product->id)
+            ->where('id', $imageId)
+            ->firstOrFail();
 
         // Delete file from storage
         if ($image->path && Storage::disk('public')->exists($image->path)) {
@@ -127,6 +191,8 @@ class ProductController extends Controller
 
         $image->delete();
 
-        return response()->json(['deleted' => true]);
+        return response()->json([
+            'deleted' => true,
+        ]);
     }
 }

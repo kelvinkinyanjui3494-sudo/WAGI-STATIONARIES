@@ -30,5 +30,17 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Environment variables
+.env
+.env.*
+!.env.example
 
-supabase/.temp/
+# Local backups and diagnostic files
+*.backup
+*.before-diagnostic
+*.before-fix
+*.disabled
+*.test-disabled
+
+# Local source backup
+src.before-supabase-removal/

@@ -1,19 +1,28 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Heart } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { ProductCard, ProductCardSkeleton } from "@/components/ProductCard";
 import { useWishlist } from "@/hooks/useWishlist";
+import { apiFetch } from "@/lib/api";
 import type { Product } from "@/lib/db-types";
 
 export const Route = createFileRoute("/wishlist")({
   head: () => ({
     meta: [
       { title: "Your Wishlist | WAGI - STATIONARIES" },
-      { name: "description", content: "Stationery you saved for later at WAGI - STATIONARIES." },
-      { property: "og:title", content: "Your Wishlist | WAGI - STATIONARIES" },
-      { property: "og:description", content: "Keep track of the products you love." },
+      {
+        name: "description",
+        content: "Stationery you saved for later at WAGI - STATIONARIES.",
+      },
+      {
+        property: "og:title",
+        content: "Your Wishlist | WAGI - STATIONARIES",
+      },
+      {
+        property: "og:description",
+        content: "Keep track of the products you love.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "robots", content: "noindex" },
@@ -30,21 +39,36 @@ function WishlistPage() {
   useEffect(() => {
     void (async () => {
       setLoading(true);
+
       if (ids.length === 0) {
         setProducts([]);
         setLoading(false);
         return;
       }
-      const { data } = await supabase.from("products").select("*").in("id", ids);
-      setProducts(data ?? []);
-      setLoading(false);
+
+      try {
+        const data = await apiFetch<Product[]>("/products");
+
+        const wishlistProducts = data.filter((product) =>
+          ids.includes(String(product.id)),
+        );
+
+        setProducts(wishlistProducts);
+      } catch (error) {
+        console.error("Failed to load wishlist products:", error);
+        setProducts([]);
+      } finally {
+        setLoading(false);
+      }
     })();
   }, [ids]);
 
   return (
     <div className="container-page py-8">
       <h1 className="text-2xl font-bold tracking-tight">My wishlist</h1>
-      <p className="mt-1 text-sm text-muted-foreground">{ids.length} saved item(s)</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {ids.length} saved item(s)
+      </p>
 
       {loading ? (
         <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">

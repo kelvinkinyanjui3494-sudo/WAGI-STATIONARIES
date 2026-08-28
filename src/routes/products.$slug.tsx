@@ -11,7 +11,7 @@ import {
   Truck,
 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -26,46 +26,106 @@ import { useCart } from "@/hooks/useCart";
 import { useWishlist } from "@/hooks/useWishlist";
 import { useAuth } from "@/hooks/useAuth";
 import { useRecentlyViewed } from "@/hooks/useLocalHistory";
-import { discountPercent, effectivePrice, formatDate, formatPrice } from "@/lib/format";
-import type { Product, ProductImage as ProductImageRow, Review } from "@/lib/db-types";
+import {
+  discountPercent,
+  effectivePrice,
+  formatDate,
+  formatPrice,
+} from "@/lib/format";
+import type {
+  Product,
+  ProductImage as ProductImageRow,
+  Review,
+} from "@/lib/db-types";
 import { cn } from "@/lib/utils";
+
+type ProductResponse = Product & {
+  images?: ProductImageRow[];
+};
+
+type ProductsResponse = {
+  data: ProductResponse[];
+  current_page?: number;
+  last_page?: number;
+  total?: number;
+};
 
 export const Route = createFileRoute("/products/$slug")({
   loader: async ({ params }) => {
-    const { data } = await supabase
-      .from("products")
-      .select("*")
-      .eq("slug", params.slug)
-      .eq("is_active", true)
-      .maybeSingle();
-    if (!data) throw notFound();
-    return { product: data as Product };
+    const response = await apiFetch<ProductResponse[] | ProductResponse>(
+      `/products/${encodeURIComponent(params.slug)}`,
+    );
+
+    const product = Array.isArray(response) ? response[0] : response;
+
+    if (!product) {
+      throw notFound();
+    }
+
+    return {
+      product,
+    };
   },
+
   head: ({ loaderData }) => {
     if (!loaderData) {
       return {
-        meta: [{ title: "Product unavailable | WAGI - STATIONARIES" }, { name: "robots", content: "noindex" }],
+        meta: [
+          {
+            title: "Product unavailable | WAGI - STATIONARIES",
+          },
+          {
+            name: "robots",
+            content: "noindex",
+          },
+        ],
       };
     }
+
     const p = loaderData.product;
-    const description = p.description.slice(0, 155);
+    const description = (p.description ?? "").slice(0, 155);
+
     return {
       meta: [
-        { title: `${p.name} | WAGI - STATIONARIES` },
-        { name: "description", content: description },
-        { property: "og:title", content: `${p.name} | WAGI - STATIONARIES` },
-        { property: "og:description", content: description },
-        { property: "og:type", content: "product" },
-        { name: "twitter:card", content: "summary_large_image" },
+        {
+          title: `${p.name} | WAGI - STATIONARIES`,
+        },
+        {
+          name: "description",
+          content: description,
+        },
+        {
+          property: "og:title",
+          content: `${p.name} | WAGI - STATIONARIES`,
+        },
+        {
+          property: "og:description",
+          content: description,
+        },
+        {
+          property: "og:type",
+          content: "product",
+        },
+        {
+          name: "twitter:card",
+          content: "summary_large_image",
+        },
         ...(p.image_url?.startsWith("https://")
           ? [
-              { property: "og:image", content: p.image_url },
-              { name: "twitter:image", content: p.image_url },
+              {
+                property: "og:image",
+                content: p.image_url,
+              },
+              {
+                name: "twitter:image",
+                content: p.image_url,
+              },
             ]
           : []),
       ],
     };
   },
+
   component: ProductDetailPage,
 });
 
@@ -74,11 +134,13 @@ function ProductDetailPage() {
   const navigate = useNavigate();
   const { addItem } = useCart();
   const wishlist = useWishlist();
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const { track } = useRecentlyViewed();
 
   const [gallery, setGallery] = useState<ProductImageRow[]>([]);
-  const [activeImage, setActiveImage] = useState<string | null>(product.image_url);
+  const [activeImage, setActiveImage] = useState<string | null>(
+    product.image_url ?? null,
+  );
   const [quantity, setQuantity] = useState(1);
   const [related, setRelated] = useState<Product[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -88,44 +150,80 @@ function ProductDetailPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const off = discountPercent(product);
-  const outOfStock = product.stock_quantity <= 0;
-  const lowStock = !outOfStock && product.stock_quantity <= product.low_stock_threshold;
+  const stockQuantity = Number(product.stock_quantity ?? product.stock_qty ?? 0);
+  const outOfStock = stockQuantity <= 0;
+  const lowStock =
+    !outOfStock &&
+    stockQuantity <= Number(product.low_stock_threshold ?? 5);
+
   const specs = (product.specifications ?? {}) as Record<string, unknown>;
 
   useEffect(() => {
-    setActiveImage(product.image_url);
+    setActiveImage(product.image_url ?? null);
     setQuantity(1);
-    track(product.id);
-    void supabase.rpc; // no-op keeps imports tidy
+    track(String(product.id));
+
     void (async () => {
-      const [imgs, rel, revs] = await Promise.all([
-        supabase.from("product_images").select("*").eq("product_id", product.id).order("sort_order"),
-        product.category_id
-          ? supabase
-              .from("products")
-              .select("*")
-              .eq("category_id", product.category_id)
-              .eq("is_active", true)
-              .neq("id", product.id)
-              .limit(4)
-          : Promise.resolve({ data: [] as Product[] }),
-        supabase
-          .from("reviews")
-          .select("*")
-          .eq("product_id", product.id)
-          .eq("is_approved", true)
-          .order("created_at", { ascending: false }),
-      ]);
-      setGallery(imgs.data ?? []);
-      setRelated((rel.data as Product[]) ?? []);
-      setReviews(revs.data ?? []);
+      try {
+        const imageRows = (product.images ?? []) as ProductImageRow[];
+
+        setGallery(imageRows);
+
+        if (imageRows.length > 0) {
+          const primary =
+            imageRows.find((image) => image.is_primary) ?? imageRows[0];
+
+          if (primary?.url) {
+            setActiveImage(primary.url);
+          }
+        }
+
+        if (product.category_id) {
+          const relatedResponse = await apiFetch<
+            ProductsResponse | ProductResponse[]
+          >(
+            `/products?category=${encodeURIComponent(
+              String(product.category_id),
+            )}&per_page=4`,
+          );
+
+          const relatedProducts = Array.isArray(relatedResponse)
+            ? relatedResponse
+            : relatedResponse.data ?? [];
+
+          setRelated(
+            relatedProducts
+              .filter((item) => item.id !== product.id)
+              .slice(0, 4),
+          );
+        } else {
+          setRelated([]);
+        }
+
+      /*
+ * Reviews are not yet implemented in the Laravel backend.
+ * Keep the UI ready for them until the reviews system is added.
+ */
+        setReviews([]);
+      } catch (error) {
+        console.error("Failed to load product details:", error);
+        setGallery([]);
+        setRelated([]);
+        setReviews([]);
+      }
     })();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product.id]);
 
   const images = [
-    ...(product.image_url ? [{ id: "main", image_url: product.image_url }] : []),
-    ...gallery.map((g) => ({ id: g.id, image_url: g.url })),
+    ...(activeImage ? [{ id: "main", image_url: activeImage }] : []),
+    ...gallery
+      .filter((image) => image.url && image.url !== activeImage)
+      .map((image) => ({
+        id: image.id,
+        image_url: image.url,
+      })),
   ];
 
   const submitReview = async () => {
@@ -134,32 +232,31 @@ function ProductDetailPage() {
       void navigate({ to: "/auth" });
       return;
     }
+
     if (comment.trim().length < 5) {
       toast.error("Please write a slightly longer review");
       return;
     }
+
     setSubmitting(true);
-    const { error } = await supabase.from("reviews").insert({
-      product_id: product.id,
-      user_id: user.id,
-      author_name: profile?.full_name ?? "Customer",
-      rating,
-      title: title.trim() || null,
-      comment: comment.trim(),
-    });
+
+    /*
+ * The Laravel backend does not currently have a reviews endpoint.
+ * Keep the review action disabled until that endpoint is available.
+ */
     setSubmitting(false);
-    if (error) {
-      toast.error(error.message.includes("duplicate") ? "You already reviewed this product" : error.message);
-      return;
-    }
-    setComment("");
-    setTitle("");
-    toast.success("Thank you! Your review was submitted for approval.");
+
+    toast.info(
+      "Reviews will be available once the Laravel reviews system is enabled.",
+    );
   };
 
   return (
     <div className="container-page py-8">
-      <nav aria-label="Breadcrumb" className="mb-4 text-sm text-muted-foreground">
+      <nav
+        aria-label="Breadcrumb"
+        className="mb-4 text-sm text-muted-foreground"
+      >
         <Link to="/" className="hover:text-primary">
           Home
         </Link>{" "}
@@ -179,12 +276,17 @@ function ProductDetailPage() {
               className="aspect-square rounded-2xl bg-transparent"
               priority
             />
+
             {off != null && (
-              <Badge variant="destructive" className="absolute left-5 top-5">
+              <Badge
+                variant="destructive"
+                className="absolute left-5 top-5"
+              >
                 -{off}% off
               </Badge>
             )}
           </div>
+
           {images.length > 1 && (
             <div className="flex gap-2 overflow-x-auto no-scrollbar">
               {images.map((img) => (
@@ -194,7 +296,8 @@ function ProductDetailPage() {
                   onClick={() => setActiveImage(img.image_url)}
                   className={cn(
                     "size-20 shrink-0 overflow-hidden rounded-xl border bg-surface p-1",
-                    activeImage === img.image_url && "border-primary ring-2 ring-primary/30",
+                    activeImage === img.image_url &&
+                      "border-primary ring-2 ring-primary/30",
                   )}
                 >
                   <ProductImage
@@ -214,17 +317,32 @@ function ProductDetailPage() {
               {product.brand}
             </span>
           )}
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{product.name}</h1>
+
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+            {product.name}
+          </h1>
+
           <div className="flex flex-wrap items-center gap-3">
-            <StarRating value={product.rating} count={product.review_count} size="md" />
-            <span className="text-xs text-muted-foreground">SKU: {product.sku}</span>
-            <span className="text-xs text-muted-foreground">{product.sold_count} sold</span>
+            <StarRating
+              value={Number(product.rating ?? 0)}
+              count={Number(product.review_count ?? 0)}
+              size="md"
+            />
+
+            <span className="text-xs text-muted-foreground">
+              SKU: {product.sku}
+            </span>
+
+            <span className="text-xs text-muted-foreground">
+              {Number(product.sold_count ?? 0)} sold
+            </span>
           </div>
 
           <div className="flex items-end gap-3">
             <span className="text-3xl font-extrabold text-primary">
               {formatPrice(effectivePrice(product))}
             </span>
+
             {off != null && (
               <span className="pb-1 text-base text-muted-foreground line-through">
                 {formatPrice(product.price)}
@@ -236,7 +354,9 @@ function ProductDetailPage() {
             {outOfStock ? (
               <Badge variant="destructive">Out of stock</Badge>
             ) : lowStock ? (
-              <Badge variant="secondary">Only {product.stock_quantity} left in stock</Badge>
+              <Badge variant="secondary">
+                Only {stockQuantity} left in stock
+              </Badge>
             ) : (
               <Badge variant="outline" className="text-success">
                 <Check className="mr-1 size-3" /> In stock
@@ -244,7 +364,9 @@ function ProductDetailPage() {
             )}
           </div>
 
-          <p className="text-sm leading-relaxed text-muted-foreground">{product.description}</p>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            {product.description}
+          </p>
 
           <Separator />
 
@@ -255,17 +377,27 @@ function ProductDetailPage() {
                 size="icon"
                 className="rounded-full"
                 aria-label="Decrease quantity"
-                onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                onClick={() =>
+                  setQuantity((q) => Math.max(1, q - 1))
+                }
               >
                 <Minus className="size-4" />
               </Button>
-              <span className="w-10 text-center text-sm font-semibold">{quantity}</span>
+
+              <span className="w-10 text-center text-sm font-semibold">
+                {quantity}
+              </span>
+
               <Button
                 variant="ghost"
                 size="icon"
                 className="rounded-full"
                 aria-label="Increase quantity"
-                onClick={() => setQuantity((q) => Math.min(product.stock_quantity || 99, q + 1))}
+                onClick={() =>
+                  setQuantity((q) =>
+                    Math.min(stockQuantity || 99, q + 1),
+                  )
+                }
               >
                 <Plus className="size-4" />
               </Button>
@@ -276,11 +408,15 @@ function ProductDetailPage() {
               className="flex-1 rounded-full"
               disabled={outOfStock}
               onClick={async () => {
-                await addItem(product.id, quantity);
-                toast.success("Added to cart", { description: `${quantity} × ${product.name}` });
+                await addItem(String(product.id), quantity);
+
+                toast.success("Added to cart", {
+                  description: `${quantity} × ${product.name}`,
+                });
               }}
             >
-              <ShoppingCart className="mr-2 size-4" /> Add to cart
+              <ShoppingCart className="mr-2 size-4" />
+              Add to cart
             </Button>
 
             <Button
@@ -289,7 +425,7 @@ function ProductDetailPage() {
               className="rounded-full"
               disabled={outOfStock}
               onClick={async () => {
-                await addItem(product.id, quantity);
+                await addItem(String(product.id), quantity);
                 void navigate({ to: "/checkout" });
               }}
             >
@@ -302,14 +438,20 @@ function ProductDetailPage() {
               className="rounded-full"
               aria-label="Save to wishlist"
               onClick={async () => {
-                const added = await wishlist.toggle(product.id);
-                toast.success(added ? "Saved to wishlist" : "Removed from wishlist");
+                const added = await wishlist.toggle(String(product.id));
+
+                toast.success(
+                  added
+                    ? "Saved to wishlist"
+                    : "Removed from wishlist",
+                );
               }}
             >
               <Heart
                 className={cn(
                   "size-4",
-                  wishlist.has(product.id) && "fill-destructive text-destructive",
+                  wishlist.has(String(product.id)) &&
+                    "fill-destructive text-destructive",
                 )}
               />
             </Button>
@@ -317,15 +459,25 @@ function ProductDetailPage() {
 
           <div className="grid gap-2 sm:grid-cols-3">
             {[
-              { icon: Truck, text: "Countrywide delivery" },
-              { icon: Smartphone, text: "M-Pesa coming soon" },
-              { icon: ShieldCheck, text: "Genuine products" },
+              {
+                icon: Truck,
+                text: "Countrywide delivery",
+              },
+              {
+                icon: Smartphone,
+                text: "M-Pesa coming soon",
+              },
+              {
+                icon: ShieldCheck,
+                text: "Genuine products",
+              },
             ].map(({ icon: Icon, text }) => (
               <div
                 key={text}
                 className="flex items-center gap-2 rounded-xl border bg-card p-3 text-xs shadow-card"
               >
-                <Icon className="size-4 text-primary" /> {text}
+                <Icon className="size-4 text-primary" />
+                {text}
               </div>
             ))}
           </div>
@@ -334,53 +486,99 @@ function ProductDetailPage() {
 
       <Tabs defaultValue="specs" className="mt-12">
         <TabsList>
-          <TabsTrigger value="specs">Specifications</TabsTrigger>
-          <TabsTrigger value="reviews">Reviews ({reviews.length})</TabsTrigger>
-          <TabsTrigger value="delivery">Delivery</TabsTrigger>
+          <TabsTrigger value="specs">
+            Specifications
+          </TabsTrigger>
+
+          <TabsTrigger value="reviews">
+            Reviews ({reviews.length})
+          </TabsTrigger>
+
+          <TabsTrigger value="delivery">
+            Delivery
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="specs" className="mt-4">
           {Object.keys(specs).length === 0 ? (
-            <p className="text-sm text-muted-foreground">No extra specifications listed.</p>
+            <p className="text-sm text-muted-foreground">
+              No extra specifications listed.
+            </p>
           ) : (
             <dl className="grid gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-2">
               {Object.entries(specs).map(([key, value]) => (
-                <div key={key} className="flex justify-between gap-4 bg-card p-3 text-sm">
+                <div
+                  key={key}
+                  className="flex justify-between gap-4 bg-card p-3 text-sm"
+                >
                   <dt className="font-medium capitalize text-muted-foreground">
                     {key.replace(/_/g, " ")}
                   </dt>
-                  <dd className="text-right font-medium">{String(value)}</dd>
+
+                  <dd className="text-right font-medium">
+                    {String(value)}
+                  </dd>
                 </div>
               ))}
             </dl>
           )}
         </TabsContent>
 
-        <TabsContent value="reviews" className="mt-4 space-y-6">
+        <TabsContent
+          value="reviews"
+          className="mt-4 space-y-6"
+        >
           <div className="space-y-4">
             {reviews.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 No reviews yet — be the first to review this product.
               </p>
             )}
+
             {reviews.map((r) => (
-              <div key={r.id} className="rounded-2xl border bg-card p-4 shadow-card">
+              <div
+                key={r.id}
+                className="rounded-2xl border bg-card p-4 shadow-card"
+              >
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-semibold">{r.author_name}</span>
-                  <span className="text-xs text-muted-foreground">{formatDate(r.created_at)}</span>
+                  <span className="text-sm font-semibold">
+                    {r.author_name}
+                  </span>
+
+                  <span className="text-xs text-muted-foreground">
+                    {formatDate(r.created_at)}
+                  </span>
                 </div>
-                <StarRating value={r.rating} className="mt-1" />
-                {r.title && <p className="mt-2 text-sm font-medium">{r.title}</p>}
-                <p className="mt-1 text-sm text-muted-foreground">{r.comment}</p>
+
+                <StarRating
+                  value={r.rating}
+                  className="mt-1"
+                />
+
+                {r.title && (
+                  <p className="mt-2 text-sm font-medium">
+                    {r.title}
+                  </p>
+                )}
+
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {r.comment}
+                </p>
               </div>
             ))}
           </div>
 
           <div className="rounded-2xl border bg-card p-5 shadow-card">
-            <h2 className="text-sm font-semibold">Write a review</h2>
+            <h2 className="text-sm font-semibold">
+              Write a review
+            </h2>
+
             <div className="mt-3 space-y-3">
               <div>
-                <Label htmlFor="rating">Your rating</Label>
+                <Label htmlFor="rating">
+                  Your rating
+                </Label>
+
                 <div className="mt-1 flex gap-1">
                   {[1, 2, 3, 4, 5].map((n) => (
                     <button
@@ -390,7 +588,9 @@ function ProductDetailPage() {
                       onClick={() => setRating(n)}
                       className={cn(
                         "size-9 rounded-lg border text-sm font-semibold",
-                        rating >= n ? "border-secondary bg-secondary/15 text-secondary" : "",
+                        rating >= n
+                          ? "border-secondary bg-secondary/15 text-secondary"
+                          : "",
                       )}
                     >
                       {n}
@@ -398,8 +598,12 @@ function ProductDetailPage() {
                   ))}
                 </div>
               </div>
+
               <div>
-                <Label htmlFor="review-title">Title (optional)</Label>
+                <Label htmlFor="review-title">
+                  Title (optional)
+                </Label>
+
                 <Input
                   id="review-title"
                   value={title}
@@ -408,8 +612,12 @@ function ProductDetailPage() {
                   placeholder="Great calculator"
                 />
               </div>
+
               <div>
-                <Label htmlFor="review-comment">Review</Label>
+                <Label htmlFor="review-comment">
+                  Review
+                </Label>
+
                 <Textarea
                   id="review-comment"
                   value={comment}
@@ -418,27 +626,56 @@ function ProductDetailPage() {
                   placeholder="Tell other customers what you think"
                 />
               </div>
-              <Button onClick={submitReview} disabled={submitting}>
-                {submitting ? "Submitting…" : "Submit review"}
+
+              <Button
+                onClick={submitReview}
+                disabled={submitting}
+              >
+                {submitting
+                  ? "Submitting…"
+                  : "Submit review"}
               </Button>
             </div>
           </div>
         </TabsContent>
 
-        <TabsContent value="delivery" className="mt-4 space-y-2 text-sm text-muted-foreground">
-          <p>Orders placed before 3:00 PM are dispatched the same working day.</p>
-          <p>Nairobi CBD pickup is available at Latema Road during business hours.</p>
-          <p>Countrywide courier delivery typically takes 1–3 working days.</p>
-          <p>Pay with M-Pesa (coming soon) or cash on delivery.</p>
+        <TabsContent
+          value="delivery"
+          className="mt-4 space-y-2 text-sm text-muted-foreground"
+        >
+          <p>
+            Orders placed before 3:00 PM are dispatched the same
+            working day.
+          </p>
+
+          <p>
+            Nairobi CBD pickup is available at Latema Road during
+            business hours.
+          </p>
+
+          <p>
+            Countrywide courier delivery typically takes 1–3
+            working days.
+          </p>
+
+          <p>
+            Pay with M-Pesa (coming soon) or cash on delivery.
+          </p>
         </TabsContent>
       </Tabs>
 
       {related.length > 0 && (
         <section className="mt-12">
-          <h2 className="text-xl font-bold tracking-tight">You may also like</h2>
+          <h2 className="text-xl font-bold tracking-tight">
+            You may also like
+          </h2>
+
           <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {related.map((p) => (
-              <ProductCard key={p.id} product={p} />
+              <ProductCard
+                key={p.id}
+                product={p}
+              />
             ))}
           </div>
         </section>

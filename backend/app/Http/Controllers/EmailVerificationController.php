@@ -3,84 +3,101 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
-use App\Notifications\CustomerVerifyEmail;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\URL;
 
 class EmailVerificationController extends Controller
 {
     /**
      * Verify the customer's email address.
      */
-    public function verify(Request $request, int $id, string $hash)
-    {
+    public function verify(
+        Request $request,
+        int $id,
+        string $hash
+    ) {
         if (!$request->hasValidSignature()) {
-            return response()->json([
-                'message' => 'The verification link is invalid or has expired.',
-            ], 403);
+            return redirect(
+                config('app.frontend_url') .
+                '/auth?verified=0&error=invalid'
+            );
         }
 
         $user = User::find($id);
 
         if (!$user) {
-            return response()->json([
-                'message' => 'Customer account not found.',
-            ], 404);
+            return redirect(
+                config('app.frontend_url') .
+                '/auth?verified=0&error=not-found'
+            );
         }
 
-        if (!hash_equals(
-            sha1($user->getEmailForVerification()),
-            $hash
-        )) {
-            return response()->json([
-                'message' => 'The verification link is invalid.',
-            ], 403);
+        if (
+            !hash_equals(
+                sha1(
+                    $user->getEmailForVerification()
+                ),
+                $hash
+            )
+        ) {
+            return redirect(
+                config('app.frontend_url') .
+                '/auth?verified=0&error=invalid'
+            );
         }
 
-        if ($user->hasVerifiedEmail()) {
-            return response()->json([
-                'message' => 'Your email address is already verified.',
-                'email_verified' => true,
-            ]);
+        if (!$user->hasVerifiedEmail()) {
+            $user->markEmailAsVerified();
         }
 
-        $user->markEmailAsVerified();
-
-        return response()->json([
-            'message' => 'Email address verified successfully. You can now sign in.',
-            'email_verified' => true,
-        ]);
+        return redirect(
+            config('app.frontend_url') .
+            '/auth?verified=1'
+        );
     }
 
     /**
      * Resend the customer's email verification message.
      */
-    public function resend(Request $request)
-    {
+    public function resend(
+        Request $request
+    ) {
         $request->validate([
-            'email' => 'required|email',
+            'email' =>
+                'required|email',
         ]);
 
-        $user = User::where('email', $request->email)->first();
+        $user = User::where(
+            'email',
+            $request->email
+        )->first();
 
         if (!$user) {
             return response()->json([
-                'message' => 'If an account exists with this email address, a verification email will be sent.',
+                'message' =>
+                    'If an account exists with this email address, a verification email will be sent.',
             ]);
         }
 
-        if ($user->hasVerifiedEmail()) {
+        if (
+            $user->hasVerifiedEmail()
+        ) {
             return response()->json([
-                'message' => 'Your email address is already verified.',
-                'email_verified' => true,
+                'message' =>
+                    'Your email address is already verified.',
+                'email_verified' =>
+                    true,
             ]);
         }
 
-        $user->notify(new CustomerVerifyEmail());
+        $user->notify(
+            new \App\Notifications\CustomerVerifyEmail()
+        );
 
         return response()->json([
-            'message' => 'Verification email sent successfully.',
-            'email_verified' => false,
+            'message' =>
+                'Verification email sent successfully.',
+            'email_verified' =>
+                false,
         ]);
     }
 }

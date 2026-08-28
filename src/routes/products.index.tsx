@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { apiFetch } from "@/lib/api";
 import { ProductCard, ProductCardSkeleton } from "@/components/ProductCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,68 +73,88 @@ function ProductsPage() {
   const [total, setTotal] = useState(0);
   const pageSize = 12;
 
-  useEffect(() => {
-    void supabase
-      .from("categories")
-      .select("*")
-      .eq("is_active", true)
-      .order("sort_order")
-      .then(({ data }) => setCategories(data ?? []));
-  }, []);
+useEffect(() => {
+  void (async () => {
+    try {
+      const response = await apiFetch<{
+        data: Category[];
+      }>("/categories");
+
+      setCategories(response.data ?? []);
+    } catch (error) {
+      console.error("Failed to load categories:", error);
+      setCategories([]);
+    }
+  })();
+}, []);
 
   useEffect(() => setPage(0), [search.q, search.category, search.sort, search.min, search.max, search.inStock]);
 
   useEffect(() => {
-    void (async () => {
-      setLoading(true);
-      let query = supabase
-        .from("products")
-        .select("*", { count: "exact" })
-        .eq("is_active", true);
+  void (async () => {
+    setLoading(true);
 
-      if (search.q) query = query.or(`name.ilike.%${search.q}%,description.ilike.%${search.q}%,brand.ilike.%${search.q}%`);
-      if (search.category) query = query.eq("category_id", search.category);
-      if (search.min != null) query = query.gte("price", search.min);
-      if (search.max != null) query = query.lte("price", search.max);
-      if (search.inStock) query = query.gt("stock_quantity", 0);
+    try {
+      const params = new URLSearchParams();
 
-      switch (search.sort) {
-        case "price_asc":
-          query = query.order("price", { ascending: true });
-          break;
-        case "price_desc":
-          query = query.order("price", { ascending: false });
-          break;
-        case "rating":
-          query = query.order("rating", { ascending: false });
-          break;
-        case "popular":
-          query = query.order("sold_count", { ascending: false });
-          break;
-        default:
-          query = query.order("created_at", { ascending: false });
-      }
+      if (search.q) params.set("q", search.q);
+      if (search.category) params.set("category", search.category);
+      if (search.min != null) params.set("min", String(search.min));
+      if (search.max != null) params.set("max", String(search.max));
+      if (search.inStock) params.set("inStock", "true");
+      if (search.sort) params.set("sort", search.sort);
 
-      const { data, count } = await query.range(page * pageSize, page * pageSize + pageSize - 1);
-      setProducts(data ?? []);
-      setTotal(count ?? 0);
+      params.set("page", String(page + 1));
+
+      const response = await apiFetch<{
+        data: Product[];
+        current_page: number;
+        last_page: number;
+        total: number;
+      }>(`/products?${params.toString()}`);
+
+      setProducts(response.data ?? []);
+      setTotal(response.total ?? 0);
+    } catch (error) {
+      console.error("Failed to load products:", error);
+      setProducts([]);
+      setTotal(0);
+    } finally {
       setLoading(false);
-    })();
-  }, [search.q, search.category, search.sort, search.min, search.max, search.inStock, page]);
-
+    }
+  })();
+}, [
+  search.q,
+  search.category,
+  search.sort,
+  search.min,
+  search.max,
+  search.inStock,
+  page,
+]);
   const activeFilters = useMemo(
     () =>
       [
-        search.q ? { key: "q", label: `“${search.q}”` } : null,
+        search.q
+          ? { key: "q", label: `"${search.q}"` }
+          : null,
         search.category
           ? {
               key: "category",
-              label: categories.find((c) => c.id === search.category)?.name ?? "Category",
+              label:
+                categories.find((c) => String(c.id) === search.category)?.name ??
+                "Category",
             }
           : null,
-        search.min != null ? { key: "min", label: `From KES ${search.min}` } : null,
-        search.max != null ? { key: "max", label: `Up to KES ${search.max}` } : null,
-        search.inStock ? { key: "inStock", label: "In stock" } : null,
+        search.min != null
+          ? { key: "min", label: `From KES ${search.min}` }
+          : null,
+        search.max != null
+          ? { key: "max", label: `Up to KES ${search.max}` }
+          : null,
+        search.inStock
+          ? { key: "inStock", label: "In stock" }
+          : null,
       ].filter(Boolean) as { key: string; label: string }[],
     [search, categories],
   );
@@ -160,9 +180,9 @@ function ProductsPage() {
             <button
               key={c.id}
               type="button"
-              onClick={() => update({ category: c.id })}
+              onClick={() => update({ category: String(c.id) })}
               className={`block w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-accent ${
-                search.category === c.id ? "bg-primary-soft font-medium text-primary" : ""
+                search.category === String(c.id) ? "bg-primary-soft font-medium text-primary" : ""
               }`}
             >
               {c.name}

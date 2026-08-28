@@ -104,25 +104,27 @@ function CheckoutPage() {
   useEffect(() => {
     if (!profile) return;
 
-    setForm((f) => ({
-      ...f,
-      customer_name:
-        f.customer_name ||
-        profile.full_name ||
-        profile.name ||
-        "",
-      email: f.email || profile.email || "",
-      phone: f.phone || profile.phone || "",
-      alt_phone: f.alt_phone || profile.alt_phone || "",
-      county: profile.county || f.county,
-      town: f.town || profile.town || "",
-      estate: f.estate || profile.estate || "",
-      street: f.street || profile.street || "",
-      building: f.building || profile.building || "",
-      house_number:
-        f.house_number || profile.house_number || "",
-      landmark: f.landmark || profile.landmark || "",
-    }));
+    const address = profile.address;
+
+setForm((f) => ({
+  ...f,
+  customer_name:
+    f.customer_name ||
+    profile.name ||
+    "",
+  email: f.email || profile.email || "",
+  phone: f.phone || profile.phone || "",
+  alt_phone: f.alt_phone || profile.alt_phone || "",
+  county: address?.county || f.county,
+  town: f.town || address?.town || "",
+  estate: f.estate || address?.estate || "",
+  street: f.street || address?.street || "",
+  building: f.building || address?.building || "",
+  house_number:
+    f.house_number || address?.house_number || "",
+  landmark:
+    f.landmark || address?.nearest_landmark || "",
+}));
   }, [profile]);
 
   const deliveryFee = useMemo(() => {
@@ -570,7 +572,7 @@ function CheckoutPage() {
               >
                 <div className="size-12 shrink-0 overflow-hidden rounded-lg bg-surface p-1">
                   <ProductImage
-                    src={l.product.image_url}
+                    src={l.product.image_url ?? null}
                     alt={l.product.name}
                     className="size-full bg-transparent"
                   />

@@ -72,7 +72,7 @@ function CartPage() {
                 className="size-24 shrink-0 overflow-hidden rounded-xl bg-surface p-2"
               >
                 <ProductImage
-                  src={line.product.image_url}
+                  src={line.product.image_url ?? null}
                   alt={line.product.name}
                   className="size-full bg-transparent"
                 />
@@ -147,7 +147,7 @@ function CartPage() {
                   >
                     <div className="size-16 shrink-0 overflow-hidden rounded-lg bg-surface p-1.5">
                       <ProductImage
-                        src={line.product.image_url}
+                        src={line.product.image_url ?? null}
                         alt={line.product.name}
                         className="size-full bg-transparent"
                       />

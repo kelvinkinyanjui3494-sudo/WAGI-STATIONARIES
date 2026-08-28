@@ -18,7 +18,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCart } from "@/hooks/useCart";
 import { useTheme } from "@/hooks/useTheme";
 import { useRecentSearches } from "@/hooks/useLocalHistory";
-import { supabase } from "@/integrations/supabase/client";
+import { apiFetch } from "@/lib/api";
 import { STORE } from "@/lib/store-config";
 import type { Category } from "@/lib/db-types";
 
@@ -38,27 +38,28 @@ export function SiteHeader() {
   const boxRef = useRef<HTMLDivElement>(null);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  useEffect(() => {
-    void supabase
-      .from("categories")
-      .select("*")
-      .eq("is_active", true)
-      .order("sort_order")
-      .then(({ data }) => setCategories(data ?? []));
-  }, []);
+ useEffect(() => {
+  void apiFetch<Category[]>("/categories")
+    .then((data) => setCategories(data ?? []))
+    .catch((error) => {
+      console.error("Failed to load categories:", error);
+      setCategories([]);
+    });
+}, []);
 
-  useEffect(() => {
-    if (!user) {
+ useEffect(() => {
+  if (!user) {
+    setUnread(0);
+    return;
+  }
+
+  void apiFetch<{ unread: number }>("/notifications/unread-count")
+    .then((data) => setUnread(data.unread ?? 0))
+    .catch((error) => {
+      console.error("Failed to load notification count:", error);
       setUnread(0);
-      return;
-    }
-    void supabase
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .eq("is_read", false)
-      .then(({ count: c }) => setUnread(c ?? 0));
-  }, [user, pathname]);
+    });
+}, [user, pathname]);
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -76,7 +77,7 @@ export function SiteHeader() {
     void navigate({ to: "/products", search: { q } });
   };
 
-  const greeting = profile?.full_name ? profile.full_name.split(" ")[0] : "there";
+  const greeting = profile?.name ? profile.name.split(" ")[0] : "there";
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/85 backdrop-blur-xl">

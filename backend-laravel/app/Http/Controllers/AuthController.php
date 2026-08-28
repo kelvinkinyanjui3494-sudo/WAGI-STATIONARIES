@@ -72,9 +72,26 @@ class AuthController extends Controller
     }
 
     public function me(Request $request)
-    {
-        return response()->json($request->user());
-    }
+{
+    $user = $request->user()->load('addresses');
+
+    $address = $user->addresses->sortByDesc('created_at')->first();
+
+    return response()->json([
+        'id' => $user->id,
+        'name' => $user->name,
+        'email' => $user->email,
+        'phone' => $user->phone,
+        'alt_phone' => $user->alt_phone,
+        'role' => $user->role,
+        'profile_picture' => $user->profile_picture,
+        'email_verified_at' => $user->email_verified_at,
+        'created_at' => $user->created_at,
+        'updated_at' => $user->updated_at,
+
+        'address' => $address,
+    ]);
+}
 
     public function changePassword(Request $request)
     {

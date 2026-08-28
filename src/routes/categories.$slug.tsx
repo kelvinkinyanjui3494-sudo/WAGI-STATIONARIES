@@ -1,6 +1,6 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { apiFetch } from "@/lib/api";
 import { ProductCard, ProductCardSkeleton } from "@/components/ProductCard";
 import {
   Select,
@@ -13,15 +13,21 @@ import type { Category, Product } from "@/lib/db-types";
 
 export const Route = createFileRoute("/categories/$slug")({
   loader: async ({ params }) => {
-    const { data } = await supabase
-      .from("categories")
-      .select("*")
-      .eq("slug", params.slug)
-      .eq("is_active", true)
-      .maybeSingle();
-    if (!data) throw notFound();
-    return { category: data as Category };
+    const response = await apiFetch<{
+      data: Category[];
+    }>("/categories?per_page=100");
+
+    const category = (response.data ?? []).find(
+      (c) => c.slug === params.slug
+    );
+
+    if (!category) {
+      throw notFound();
+    }
+
+    return { category };
   },
+
   head: ({ loaderData }) => {
     if (!loaderData) {
       return {
@@ -31,9 +37,12 @@ export const Route = createFileRoute("/categories/$slug")({
         ],
       };
     }
+
     const c = loaderData.category;
+
     const description =
-      c.description ?? `Shop ${c.name} at WAGI - STATIONARIES with delivery across Kenya.`;
+      `Shop ${c.name} at WAGI - STATIONARIES with delivery across Kenya.`;
+
     return {
       meta: [
         { title: `${c.name} | WAGI - STATIONARIES` },
@@ -45,6 +54,7 @@ export const Route = createFileRoute("/categories/$slug")({
       ],
     };
   },
+
   component: CategoryPage,
 });
 
@@ -57,24 +67,31 @@ function CategoryPage() {
   useEffect(() => {
     void (async () => {
       setLoading(true);
-      let query = supabase
-        .from("products")
-        .select("*")
-        .eq("category_id", category.id)
-        .eq("is_active", true);
-      if (sort === "price_asc") query = query.order("price", { ascending: true });
-      else if (sort === "price_desc") query = query.order("price", { ascending: false });
-      else if (sort === "rating") query = query.order("rating", { ascending: false });
-      else query = query.order("created_at", { ascending: false });
-      const { data } = await query;
-      setProducts(data ?? []);
-      setLoading(false);
+
+      try {
+        const response = await apiFetch<{
+          data: Product[];
+          total: number;
+        }>(
+          `/products?category=${category.id}&sort=${sort}&per_page=100`
+        );
+
+        setProducts(response.data ?? []);
+      } catch (error) {
+        console.error("Failed to load category products:", error);
+        setProducts([]);
+      } finally {
+        setLoading(false);
+      }
     })();
   }, [category.id, sort]);
 
   return (
     <div className="container-page py-8">
-      <nav aria-label="Breadcrumb" className="mb-3 text-sm text-muted-foreground">
+      <nav
+        aria-label="Breadcrumb"
+        className="mb-3 text-sm text-muted-foreground"
+      >
         <Link to="/" className="hover:text-primary">
           Home
         </Link>{" "}
@@ -87,19 +104,31 @@ function CategoryPage() {
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">{category.name}</h1>
-          {category.description && (
-            <p className="mt-1 max-w-xl text-sm text-muted-foreground">{category.description}</p>
-          )}
+          <h1 className="text-2xl font-bold tracking-tight">
+            {category.name}
+          </h1>
+
+          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+            Shop {category.name} products at WAGI - STATIONARIES.
+          </p>
         </div>
+
         <Select value={sort} onValueChange={setSort}>
-          <SelectTrigger className="w-[180px]" aria-label="Sort products">
+          <SelectTrigger
+            className="w-[180px]"
+            aria-label="Sort products"
+          >
             <SelectValue />
           </SelectTrigger>
+
           <SelectContent>
             <SelectItem value="newest">Newest first</SelectItem>
-            <SelectItem value="price_asc">Price: low to high</SelectItem>
-            <SelectItem value="price_desc">Price: high to low</SelectItem>
+            <SelectItem value="price_asc">
+              Price: low to high
+            </SelectItem>
+            <SelectItem value="price_desc">
+              Price: high to low
+            </SelectItem>
             <SelectItem value="rating">Top rated</SelectItem>
           </SelectContent>
         </Select>
@@ -107,8 +136,12 @@ function CategoryPage() {
 
       <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {loading
-          ? Array.from({ length: 8 }).map((_, i) => <ProductCardSkeleton key={i} />)
-          : products.map((p) => <ProductCard key={p.id} product={p} />)}
+          ? Array.from({ length: 8 }).map((_, i) => (
+              <ProductCardSkeleton key={i} />
+            ))
+          : products.map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
       </div>
 
       {!loading && products.length === 0 && (
