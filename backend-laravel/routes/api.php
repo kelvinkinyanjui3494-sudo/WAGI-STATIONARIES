@@ -32,7 +32,8 @@ Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
 
 // Password reset
-Route::post('/auth/forgot-password', [PasswordResetController::class, 'sendResetLink']);
+Route::post('/auth/forgot-password', [PasswordResetController::class, 'forgot']);
+Route::post('/auth/verify-reset-code', [PasswordResetController::class, 'verifyCode']);
 Route::post('/auth/reset-password', [PasswordResetController::class, 'reset']);
 
 // Authenticated user routes
@@ -52,9 +53,11 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 // Wishlist
-Route::get('/wishlist', [WishlistController::class, 'index']);
-Route::post('/wishlist', [WishlistController::class, 'store']);
-Route::delete('/wishlist/{productId}', [WishlistController::class, 'destroy']);
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/wishlist', [WishlistController::class, 'index']);
+    Route::post('/wishlist', [WishlistController::class, 'store']);
+    Route::delete('/wishlist/{productId}', [WishlistController::class, 'destroy']);
+});
 
 // Public Categories
 Route::get('/categories', [AdminCategoriesController::class, 'index']);
@@ -66,8 +69,8 @@ Route::get('/products/{id}', [ProductController::class, 'show']);
 // Store Settings
 Route::get('/store-settings', function () {
     return response()->json([
-        'delivery_fee' => 0,
-        'free_delivery_threshold' => 0,
+        'delivery_fee' => 300,
+        'free_delivery_threshold' => 5000,
         'tax_rate' => 0,
         'mpesa_phone' => null,
     ]);
@@ -94,10 +97,12 @@ Route::get('/coupons/{code}', function ($code) {
 });
 
 // Cart
-Route::get('/cart', [CartController::class, 'index']);
-Route::post('/cart', [CartController::class, 'store']);
-Route::put('/cart/{id}', [CartController::class, 'update']);
-Route::delete('/cart/{id}', [CartController::class, 'destroy']);
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/cart', [CartController::class, 'index']);
+    Route::post('/cart', [CartController::class, 'store']);
+    Route::put('/cart/{id}', [CartController::class, 'update']);
+    Route::delete('/cart/{id}', [CartController::class, 'destroy']);
+});
 
 // Checkout
 Route::middleware('auth:sanctum')->post(
@@ -118,10 +123,8 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::prefix('admin')
     ->middleware(['auth:sanctum', 'admin'])
     ->group(function () {
-
     // Dashboard
     Route::get('/stats', [AdminStatsController::class, 'index']);
-
     // Products
     Route::get('/products', [AdminProductsController::class, 'index']);
     Route::post('/products', [AdminProductsController::class, 'store']);
@@ -148,22 +151,21 @@ Route::prefix('admin')
     Route::post('/categories', [AdminCategoriesController::class, 'store']);
     Route::put('/categories/{id}', [AdminCategoriesController::class, 'update']);
     Route::delete('/categories/{id}', [AdminCategoriesController::class, 'destroy']);
-
     // Customers
     Route::get('/customers', [AdminCustomersController::class, 'index']);
-    Route::get('/customers/{id}', [AdminCustomersController::class, 'show']);
-
+    Route::get('/customers/{id}', [AdminCustomersController::class, 'show']);	
+    // Orders
+    Route::get('/orders', [AdminOrderController::class, 'index']);
+    Route::get('/orders/{id}', [AdminOrderController::class, 'show']);
+    Route::post('/orders/{id}/status', [AdminOrderController::class, 'updateStatus']);
     // Payments
     Route::get('/payments', [AdminPaymentsController::class, 'index']);
     Route::get('/payments/{id}', [AdminPaymentsController::class, 'show']);
-
     // Notifications
-    Route::get('/notifications', [AdminNotificationsController::class, 'index']);
-    Route::post('/notifications', [AdminNotificationsController::class, 'store']);
-
+   Route::get('/notifications', [AdminNotificationsController::class, 'index']);
+   Route::post('/notifications/{id}/read', [AdminNotificationsController::class, 'markRead']);
     // Reports
     Route::get('/reports', [AdminReportsController::class, 'index']);
-
     // Inventory
     Route::get('/inventory', [InventoryController::class, 'index']);
     Route::post('/inventory', [InventoryController::class, 'store']);

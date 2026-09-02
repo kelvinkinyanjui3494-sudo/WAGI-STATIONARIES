@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\User;
 use App\Services\InventoryService;
 
 class AdminOrderController extends Controller
@@ -43,6 +44,21 @@ class AdminOrderController extends Controller
 
         // create notification row (notifications table)
         $order->user->notify(new \App\Notifications\OrderStatusChangedNotification($order, $old, $request->status));
+// create notification row (notifications table)
+$order->user->notify(new \App\Notifications\OrderStatusChangedNotification($order, $old, $request->status));
+
+// notify admin as well
+User::where('role', 'admin')
+    ->get()
+    ->each(function ($admin) use ($order, $old) {
+        $admin->notify(
+            new \App\Notifications\OrderStatusChangedNotification(
+                $order,
+                $old,
+                $order->status
+            )
+        );
+    });
 
         return response()->json(['message' => 'Order status updated', 'order' => $order]);
     }

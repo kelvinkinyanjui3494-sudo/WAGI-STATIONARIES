@@ -47,11 +47,13 @@ function WishlistPage() {
       }
 
       try {
-        const data = await apiFetch<Product[]>("/products");
+        const response = await apiFetch<{
+          data: Product[];
+         }>("/products");
 
-        const wishlistProducts = data.filter((product) =>
-          ids.includes(String(product.id)),
-        );
+       const wishlistProducts = response.data.filter((product) =>
+       ids.includes(String(product.id)),
+    );
 
         setProducts(wishlistProducts);
       } catch (error) {

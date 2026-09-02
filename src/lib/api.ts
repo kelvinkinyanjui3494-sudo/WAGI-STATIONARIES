@@ -1,8 +1,17 @@
 const API_URL =
   import.meta.env["VITE_API_URL"] || "http://127.0.0.1:8000/api";
+
 type ApiOptions = RequestInit & {
   token?: string | null;
 };
+
+function getStoredAuthToken(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.localStorage.getItem("wagi_auth_token");
+}
 
 export async function apiFetch<T>(
   endpoint: string,
@@ -18,20 +27,16 @@ export async function apiFetch<T>(
     finalHeaders.set("Content-Type", "application/json");
   }
 
-  const authToken =
-    token ?? localStorage.getItem("wagi_auth_token");
+  const authToken = token ?? getStoredAuthToken();
 
   if (authToken) {
     finalHeaders.set("Authorization", `Bearer ${authToken}`);
   }
 
-  const response = await fetch(
-    `${API_URL}${endpoint}`,
-    {
-      ...fetchOptions,
-      headers: finalHeaders,
-    },
-  );
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...fetchOptions,
+    headers: finalHeaders,
+  });
 
   let data: unknown = null;
 
@@ -59,13 +64,22 @@ export async function apiFetch<T>(
 }
 
 export function setAuthToken(token: string): void {
-  localStorage.setItem("wagi_auth_token", token);
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem("wagi_auth_token", token);
 }
 
 export function getAuthToken(): string | null {
-  return localStorage.getItem("wagi_auth_token");
+  return getStoredAuthToken();
 }
 
 export function clearAuthToken(): void {
-  localStorage.removeItem("wagi_auth_token");
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem("wagi_auth_token");
 }
+

@@ -24,6 +24,23 @@ class NotificationController extends Controller
             ->latest()
             ->paginate(30);
 
+        $notifications->getCollection()->transform(function ($notification) {
+            $data = $notification->data ?? [];
+
+            return [
+                'id' => $notification->id,
+                'type' => $notification->type,
+                'title' => $data['title'] ?? 'Order Update',
+                'message' => $data['message'] ?? 'You have a new WAGI Stationeries update.',
+                'created_at' => $notification->created_at,
+                'read_at' => $notification->read_at,
+
+                // Keep the original notification data available
+                // for future use by the frontend.
+                'data' => $data,
+            ];
+        });
+
         return response()->json($notifications);
     }
 

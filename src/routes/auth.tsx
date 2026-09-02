@@ -34,6 +34,7 @@ type RegisterResponse = {
     email: string;
     phone: string | null;
     role: string;
+    email_verified_at?: string | null;
   };
   email_verified: boolean;
 };
@@ -56,18 +57,19 @@ export const Route =
       (
         search: Record<string, unknown>,
       ): Search => {
-  const result: Search = {};
+        const result: Search = {};
 
-  if (search["mode"] === "register") {
-    result.mode = "register";
-  }
+        if (search["mode"] === "register") {
+          result.mode = "register";
+        }
 
-  if (typeof search["verified"] === "string") {
-    result.verified = search["verified"];
-  }
+        if (typeof search["verified"] === "string") {
+          result.verified = search["verified"];
+        }
 
-  return result;
-},
+        return result;
+      },
+
     head: () => ({
       meta: [
         {
@@ -113,8 +115,10 @@ function AuthPage() {
   const navigate =
     useNavigate();
 
-  const { user } =
-    useAuth();
+  const {
+    user,
+    refreshProfile,
+  } = useAuth();
 
   const [
     isRegister,
@@ -145,6 +149,36 @@ function AuthPage() {
 
   const [sent, setSent] =
     useState(false);
+
+  const [
+    forgotPassword,
+    setForgotPassword,
+  ] = useState(false);
+
+  const [
+    resetStep,
+    setResetStep,
+  ] = useState<1 | 2 | 3>(1);
+
+  const [
+    resetEmail,
+    setResetEmail,
+  ] = useState("");
+
+  const [
+    resetCode,
+    setResetCode,
+  ] = useState("");
+
+  const [
+    newPassword,
+    setNewPassword,
+  ] = useState("");
+
+  const [
+    newPasswordConfirmation,
+    setNewPasswordConfirmation,
+  ] = useState("");
 
   useEffect(() => {
     if (verified === "1") {
@@ -185,7 +219,7 @@ function AuthPage() {
       if (isRegister) {
         const response =
           await apiFetch<RegisterResponse>(
-            "/register",
+            "/auth/register",
             {
               method: "POST",
 
@@ -210,13 +244,12 @@ function AuthPage() {
         setSent(true);
 
         toast.success(
-          response.message ||
-            "Account created successfully.",
+          "Account created successfully. Please check your email to verify your account.",
         );
       } else {
         const response =
           await apiFetch<LoginResponse>(
-            "/login",
+            "/auth/login",
             {
               method: "POST",
 
@@ -235,6 +268,8 @@ function AuthPage() {
         setAuthToken(
           response.token,
         );
+
+        await refreshProfile();
 
         toast.success(
           "Signed in successfully.",
@@ -294,6 +329,182 @@ function AuthPage() {
       }
     };
 
+  const sendResetCode =
+    async () => {
+      if (!resetEmail.trim()) {
+        toast.error(
+          "Enter your email address.",
+        );
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        const response =
+          await apiFetch<{
+            message: string;
+          }>("/auth/forgot-password", {
+            method: "POST",
+
+            body: JSON.stringify({
+              email:
+                resetEmail.trim(),
+            }),
+          });
+
+        setResetStep(2);
+
+        toast.success(
+          response.message,
+        );
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Unable to send verification code.",
+        );
+      } finally {
+        setBusy(false);
+      }
+    };
+
+  const verifyResetCode =
+    async () => {
+      if (!resetCode.trim()) {
+        toast.error(
+          "Enter the 6-digit verification code.",
+        );
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        const response =
+          await apiFetch<{
+            message: string;
+          }>("/auth/verify-reset-code", {
+            method: "POST",
+
+            body: JSON.stringify({
+              email:
+                resetEmail.trim(),
+
+              code:
+                resetCode.trim(),
+            }),
+          });
+
+        setResetStep(3);
+
+        toast.success(
+          response.message,
+        );
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Invalid or expired verification code.",
+        );
+      } finally {
+        setBusy(false);
+      }
+    };
+
+  const resetCustomerPassword =
+    async () => {
+      if (
+        newPassword.length < 8
+      ) {
+        toast.error(
+          "Password must be at least 8 characters.",
+        );
+        return;
+      }
+
+      if (
+        newPassword !==
+        newPasswordConfirmation
+      ) {
+        toast.error(
+          "Passwords do not match.",
+        );
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        const response =
+          await apiFetch<{
+            message: string;
+          }>("/auth/reset-password", {
+            method: "POST",
+
+            body: JSON.stringify({
+              email:
+                resetEmail.trim(),
+
+              code:
+                resetCode.trim(),
+
+              password:
+                newPassword,
+
+              password_confirmation:
+                newPasswordConfirmation,
+            }),
+          });
+
+        toast.success(
+          response.message,
+        );
+
+        setForgotPassword(false);
+        setResetStep(1);
+        setResetEmail("");
+        setResetCode("");
+        setNewPassword("");
+        setNewPasswordConfirmation("");
+        setPassword("");
+        setPasswordConfirmation("");
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Unable to reset your password.",
+        );
+      } finally {
+        setBusy(false);
+      }
+    };
+
+  const openForgotPassword =
+    () => {
+      setForgotPassword(true);
+      setResetStep(1);
+      setResetEmail(email);
+      setResetCode("");
+      setNewPassword("");
+      setNewPasswordConfirmation("");
+      setPassword("");
+      setPasswordConfirmation("");
+    };
+
+  const backToSignIn =
+    () => {
+      setForgotPassword(false);
+      setResetStep(1);
+      setResetEmail("");
+      setResetCode("");
+      setNewPassword("");
+      setNewPasswordConfirmation("");
+      setPassword("");
+      setPasswordConfirmation("");
+      setIsRegister(false);
+    };
+
   const switchMode = () => {
     setIsRegister(
       (value) => !value,
@@ -312,7 +523,196 @@ function AuthPage() {
           <Logo size="lg" />
         </div>
 
-        {sent ? (
+        {forgotPassword ? (
+          <>
+            {resetStep === 1 && (
+              <div className="mt-6">
+
+                <h1 className="text-center text-xl font-bold">
+                  Forgot your password?
+                </h1>
+
+                <p className="mt-2 text-center text-sm text-muted-foreground">
+                  Enter your email address and we will send you a verification code.
+                </p>
+
+                <div className="mt-5 space-y-1.5">
+                  <Label htmlFor="resetEmail">
+                    Email
+                  </Label>
+
+                  <Input
+                    id="resetEmail"
+                    type="email"
+                    value={resetEmail}
+                    maxLength={255}
+                    required
+                    onChange={(e) =>
+                      setResetEmail(
+                        e.target.value,
+                      )
+                    }
+                  />
+                </div>
+
+                <Button
+                  type="button"
+                  className="mt-5 w-full rounded-full"
+                  disabled={busy}
+                  onClick={
+                    sendResetCode
+                  }
+                >
+                  {busy
+                    ? "Please wait..."
+                    : "Send verification code"}
+                </Button>
+
+                <button
+                  type="button"
+                  className="mt-4 block w-full text-center text-sm text-primary hover:underline"
+                  onClick={
+                    backToSignIn
+                  }
+                >
+                  Back to sign in
+                </button>
+
+              </div>
+            )}
+
+            {resetStep === 2 && (
+              <div className="mt-6">
+
+                <h1 className="text-center text-xl font-bold">
+                  Check your email
+                </h1>
+
+                <p className="mt-2 text-center text-sm text-muted-foreground">
+                  We sent a 6-digit verification code to{" "}
+                  <strong>
+                    {resetEmail}
+                  </strong>.
+                </p>
+
+                <div className="mt-5 space-y-1.5">
+                  <Label htmlFor="resetCode">
+                    Verification code
+                  </Label>
+
+                  <Input
+                    id="resetCode"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={resetCode}
+                    placeholder="000000"
+                    required
+                    onChange={(e) =>
+                      setResetCode(
+                        e.target.value.replace(
+                          /\D/g,
+                          "",
+                        ),
+                      )
+                    }
+                  />
+                </div>
+
+                <Button
+                  type="button"
+                  className="mt-5 w-full rounded-full"
+                  disabled={busy}
+                  onClick={
+                    verifyResetCode
+                  }
+                >
+                  {busy
+                    ? "Please wait..."
+                    : "Verify code"}
+                </Button>
+
+                <button
+                  type="button"
+                  className="mt-4 block w-full text-center text-sm text-primary hover:underline"
+                  onClick={() =>
+                    setResetStep(1)
+                  }
+                >
+                  Use a different email
+                </button>
+
+              </div>
+            )}
+
+            {resetStep === 3 && (
+              <div className="mt-6">
+
+                <h1 className="text-center text-xl font-bold">
+                  Create a new password
+                </h1>
+
+                <p className="mt-2 text-center text-sm text-muted-foreground">
+                  Enter your new password below.
+                </p>
+
+                <div className="mt-5 space-y-1.5">
+                  <Label htmlFor="newPassword">
+                    New Password
+                  </Label>
+
+                  <Input
+                    id="newPassword"
+                    type="password"
+                    value={newPassword}
+                    minLength={8}
+                    required
+                    onChange={(e) =>
+                      setNewPassword(
+                        e.target.value,
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="mt-3 space-y-1.5">
+                  <Label htmlFor="newPasswordConfirmation">
+                    Confirm New Password
+                  </Label>
+
+                  <Input
+                    id="newPasswordConfirmation"
+                    type="password"
+                    value={
+                      newPasswordConfirmation
+                    }
+                    minLength={8}
+                    required
+                    onChange={(e) =>
+                      setNewPasswordConfirmation(
+                        e.target.value,
+                      )
+                    }
+                  />
+                </div>
+
+                <Button
+                  type="button"
+                  className="mt-5 w-full rounded-full"
+                  disabled={busy}
+                  onClick={
+                    resetCustomerPassword
+                  }
+                >
+                  {busy
+                    ? "Please wait..."
+                    : "Reset password"}
+                </Button>
+
+              </div>
+            )}
+          </>
+        ) : sent ? (
           <div className="mt-6 text-center">
 
             <h1 className="text-lg font-bold">
@@ -446,6 +846,20 @@ function AuthPage() {
                 />
               </div>
 
+              {!isRegister && (
+                <div className="text-right">
+                  <button
+                    type="button"
+                    className="text-sm text-primary hover:underline"
+                    onClick={
+                      openForgotPassword
+                    }
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+              )}
+
               {isRegister && (
                 <div className="space-y-1.5">
                   <Label htmlFor="passwordConfirmation">
@@ -505,3 +919,4 @@ function AuthPage() {
     </div>
   );
 }
+

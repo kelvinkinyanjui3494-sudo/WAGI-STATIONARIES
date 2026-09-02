@@ -39,8 +39,8 @@ export function SiteHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
  useEffect(() => {
-  void apiFetch<Category[]>("/categories")
-    .then((data) => setCategories(data ?? []))
+  void apiFetch<{ data: Category[] }>("/categories?per_page=100")
+    .then((response) => setCategories(response.data ?? []))
     .catch((error) => {
       console.error("Failed to load categories:", error);
       setCategories([]);

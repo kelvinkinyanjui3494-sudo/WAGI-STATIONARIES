@@ -20,6 +20,7 @@ type ProductFormData = {
   name: string
   sku: string
   price: number
+  discount_price: number | null
   stock_qty: number
   description: string
   category_id: number | null
@@ -35,6 +36,7 @@ export default function ProductForm() {
     name: '',
     sku: '',
     price: 0,
+    discount_price: null,
     stock_qty: 0,
     description: '',
     category_id: null,
@@ -81,6 +83,11 @@ export default function ProductForm() {
         name: product.name ?? '',
         sku: product.sku ?? '',
         price: Number(product.price ?? 0),
+        discount_price:
+          product.discount_price !== null &&
+          product.discount_price !== undefined
+            ? Number(product.discount_price)
+            : null,
         stock_qty: Number(product.stock_qty ?? 0),
         description: product.description ?? '',
         category_id: product.category_id ?? null,
@@ -137,17 +144,17 @@ export default function ProductForm() {
       /*
        * Upload image after product has been created.
        */
-if (imageFile && product?.id) {
-  const formData = new FormData()
+      if (imageFile && product?.id) {
+        const formData = new FormData()
 
-  formData.append('image', imageFile)
-  formData.append('is_primary', '1')
+        formData.append('image', imageFile)
+        formData.append('is_primary', '1')
 
-  await api.post(
-    `/api/admin/products/${product.id}/images`,
-    formData
-  )
-}
+        await api.post(
+          `/api/admin/products/${product.id}/images`,
+          formData
+        )
+      }
 
       alert(
         editMode
@@ -328,7 +335,7 @@ if (imageFile && product?.id) {
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
 
               <div>
                 <label className="block font-medium text-gray-700 mb-2">
@@ -349,6 +356,33 @@ if (imageFile && product?.id) {
                   required
                   className="w-full border border-gray-300 rounded-lg px-4 py-3"
                 />
+              </div>
+
+              <div>
+                <label className="block font-medium text-gray-700 mb-2">
+                  Discount Price (KES)
+                </label>
+
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.discount_price ?? ''}
+                  onChange={(event) =>
+                    updateField(
+                      'discount_price',
+                      event.target.value === ''
+                        ? null
+                        : Number(event.target.value)
+                    )
+                  }
+                  placeholder="Optional"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3"
+                />
+
+                <p className="text-xs text-gray-500 mt-1">
+                  Leave empty if there is no discount.
+                </p>
               </div>
 
               <div>
@@ -483,3 +517,4 @@ if (imageFile && product?.id) {
     </div>
   )
 }
+

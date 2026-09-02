@@ -57,14 +57,27 @@ class CartController extends Controller
         unset($item);
 
         if (!$found) {
-            $items[] = [
-                'product_id' => $product->id,
-                'sku' => $product->sku,
-                'name' => $product->name,
-                'unit_price' => (float) $product->price,
-                'quantity' => (int) $request->quantity,
-            ];
-        }
+    $price = (float) $product->price;
+    $discountPrice = $product->discount_price !== null
+        ? (float) $product->discount_price
+        : null;
+
+    $effectivePrice = (
+        $discountPrice !== null &&
+        $discountPrice > 0 &&
+        $discountPrice < $price
+    )
+        ? $discountPrice
+        : $price;
+
+    $items[] = [
+        'product_id' => $product->id,
+        'sku' => $product->sku,
+        'name' => $product->name,
+        'unit_price' => $effectivePrice,
+        'quantity' => (int) $request->quantity,
+    ];
+}
 
         $cart->items = $items;
         $cart->save();
