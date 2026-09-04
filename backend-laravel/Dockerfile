@@ -1,6 +1,6 @@
 FROM php:8.3-apache
 
-# Install system dependencies
+# Install system dependencies and PHP extensions
 RUN apt-get update && apt-get install -y \
     git \
     unzip \
@@ -61,8 +61,7 @@ RUN mkdir -p \
         storage \
         bootstrap/cache
 
-# Railway supplies PORT at runtime.
-# Apache will listen on port 8080 by default.
+# Railway uses port 8080 for this service
 RUN sed -i 's/^Listen 80$/Listen 8080/' /etc/apache2/ports.conf \
     && sed -i 's/<VirtualHost \*:80>/<VirtualHost *:8080>/' \
         /etc/apache2/sites-available/000-default.conf
@@ -70,4 +69,3 @@ RUN sed -i 's/^Listen 80$/Listen 8080/' /etc/apache2/ports.conf \
 EXPOSE 8080
 
 CMD ["apache2-foreground"]
-
