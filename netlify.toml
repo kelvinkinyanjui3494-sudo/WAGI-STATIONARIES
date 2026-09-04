@@ -1,6 +1,6 @@
 [build]
-command = "cd frontend/admin && npm run build"
-publish = "frontend/admin/dist"
+command = "npm run build"
+publish = "dist"
 
 [[redirects]]
 from = "/*"
