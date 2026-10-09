@@ -179,16 +179,15 @@ return new class extends Migration
 
         // Notifications
         Schema::create('notifications', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('user_id')
-                ->nullable()
-                ->constrained('users')
-                ->cascadeOnDelete();
-            $table->string('type')->nullable();
-            $table->json('data')->nullable();
+            $table->uuid('id')->primary();
+            $table->morphs('notifiable');
+            $table->string('type');
+            $table->text('data');
             $table->timestamp('read_at')->nullable();
-            $table->timestamp('created_at')->useCurrent();
+            $table->timestamps();
         });
+
+
 
         // Coupons
         Schema::create('coupons', function (Blueprint $table) {
