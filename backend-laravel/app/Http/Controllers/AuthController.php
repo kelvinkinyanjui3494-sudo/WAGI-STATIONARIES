@@ -2,14 +2,19 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Validator;
 use App\Models\User;
 use App\Notifications\VerifyEmailNotification;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use Throwable;
 
 class AuthController extends Controller
 {
+    /**
+     * Register a new customer and send an email verification link.
+     */
     public function register(Request $request)
     {
         $v = Validator::make($request->all(), [
@@ -21,37 +26,50 @@ class AuthController extends Controller
 
         if ($v->fails()) {
             return response()->json([
-                'errors' => $v->errors()
+                'message' => 'Please correct the information provided.',
+                'errors' => $v->errors(),
             ], 422);
         }
 
-        $user = User::create([
-            'name' => trim($request->name),
-            'email' => strtolower(trim($request->email)),
-            'phone' => trim($request->phone),
-            'password' => Hash::make($request->password),
-            'role' => 'customer',
-        ]);
+        try {
+            $user = User::create([
+                'name' => trim($request->name),
+                'email' => strtolower(trim($request->email)),
+                'phone' => trim($request->phone),
+                'password' => Hash::make($request->password),
+                'role' => 'customer',
+            ]);
 
-        // Send email verification notification.
-        $user->notify(
-            new VerifyEmailNotification()
-        );
+            // Send the email verification notification.
+            $user->notify(new VerifyEmailNotification());
 
-        return response()->json([
-            'message' => 'Account created successfully. Please check your email to verify your account.',
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'phone' => $user->phone,
-                'role' => $user->role,
-                'email_verified_at' => $user->email_verified_at,
-            ],
-            'email_verified' => false,
-        ], 201);
+            return response()->json([
+                'message' => 'Account created successfully. Please check your email to verify your account.',
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'phone' => $user->phone,
+                    'role' => $user->role,
+                    'email_verified_at' => $user->email_verified_at,
+                ],
+                'email_verified' => false,
+            ], 201);
+        } catch (Throwable $e) {
+            Log::error('Customer registration failed', [
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Registration failed. Please try again later.',
+            ], 500);
+        }
     }
 
+    /**
+     * Authenticate a customer or administrator.
+     */
     public function login(Request $request)
     {
         $v = Validator::make($request->all(), [
@@ -62,7 +80,7 @@ class AuthController extends Controller
 
         if ($v->fails()) {
             return response()->json([
-                'errors' => $v->errors()
+                'errors' => $v->errors(),
             ], 422);
         }
 
@@ -73,17 +91,12 @@ class AuthController extends Controller
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json([
-                'message' => 'Invalid credentials'
+                'message' => 'Invalid credentials',
             ], 401);
         }
 
-        $device = $request->input(
-            'device_name',
-            'default'
-        );
-
-        $token = $user->createToken($device)
-            ->plainTextToken;
+        $device = $request->input('device_name', 'default');
+        $token = $user->createToken($device)->plainTextToken;
 
         return response()->json([
             'user' => [
@@ -98,6 +111,9 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Log out the currently authenticated user.
+     */
     public function logout(Request $request)
     {
         $token = $request->user()->currentAccessToken();
@@ -107,10 +123,13 @@ class AuthController extends Controller
         }
 
         return response()->json([
-            'message' => 'Logged out'
+            'message' => 'Logged out',
         ]);
     }
 
+    /**
+     * Return the authenticated user's profile.
+     */
     public function me(Request $request)
     {
         $user = $request->user()->load('addresses');
@@ -134,6 +153,9 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Change the authenticated user's password.
+     */
     public function changePassword(Request $request)
     {
         $v = Validator::make($request->all(), [
@@ -143,29 +165,23 @@ class AuthController extends Controller
 
         if ($v->fails()) {
             return response()->json([
-                'errors' => $v->errors()
+                'errors' => $v->errors(),
             ], 422);
         }
 
         $user = $request->user();
 
-        if (!Hash::check(
-            $request->current_password,
-            $user->password
-        )) {
+        if (!Hash::check($request->current_password, $user->password)) {
             return response()->json([
-                'message' => 'Current password is incorrect'
+                'message' => 'Current password is incorrect',
             ], 403);
         }
 
-        $user->password = Hash::make(
-            $request->new_password
-        );
-
+        $user->password = Hash::make($request->new_password);
         $user->save();
 
         return response()->json([
-            'message' => 'Password changed successfully'
+            'message' => 'Password changed successfully',
         ]);
     }
 }
