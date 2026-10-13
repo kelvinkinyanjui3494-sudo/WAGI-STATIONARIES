@@ -87,12 +87,12 @@ Route::get('/coupons/{code}', function ($code) {
 
     if (!$coupon) {
         return response()->json([
-            'message' => 'Coupon not found or no longer active'
+            'message' => 'Coupon not found or no longer active',
         ], 404);
     }
 
     return response()->json([
-        'coupon' => $coupon
+        'coupon' => $coupon,
     ]);
 });
 
@@ -109,6 +109,7 @@ Route::middleware('auth:sanctum')->post(
     '/checkout',
     [CheckoutController::class, 'checkout']
 );
+
 // Customer Orders
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders', [OrderController::class, 'index']);
@@ -120,53 +121,64 @@ Route::middleware('auth:sanctum')->group(function () {
 | Admin Routes
 |--------------------------------------------------------------------------
 */
+
 Route::prefix('admin')
     ->middleware(['auth:sanctum', 'admin'])
     ->group(function () {
-    // Dashboard
-    Route::get('/stats', [AdminStatsController::class, 'index']);
-    // Products
-    Route::get('/products', [AdminProductsController::class, 'index']);
-    Route::post('/products', [AdminProductsController::class, 'store']);
-    Route::put('/products/{id}', [AdminProductsController::class, 'update']);
-    Route::delete('/products/{id}', [AdminProductsController::class, 'destroy']);
+        // Dashboard
+        Route::get('/stats', [AdminStatsController::class, 'index']);
 
-    Route::post(
-        '/products/{id}/images/{imageId}/replace',
-        [AdminProductsController::class, 'replaceImage']
-    );
+        // Products
+        Route::get('/products', [AdminProductsController::class, 'index']);
+        Route::post('/products', [AdminProductsController::class, 'store']);
+        Route::put('/products/{id}', [AdminProductsController::class, 'update']);
+        Route::delete('/products/{id}', [AdminProductsController::class, 'destroy']);
 
-    Route::delete(
-        '/products/{id}/images/{imageId}',
-        [AdminProductsController::class, 'deleteImage']
-    );
+        Route::post(
+            '/products/{id}/images/{imageId}/replace',
+            [AdminProductsController::class, 'replaceImage']
+        );
 
-    Route::post(
-        '/products/{id}/images',
-        [ProductController::class, 'uploadImage']
-    );
+        Route::delete(
+            '/products/{id}/images/{imageId}',
+            [AdminProductsController::class, 'deleteImage']
+        );
 
-    // Categories
-    Route::get('/categories', [AdminCategoriesController::class, 'index']);
-    Route::post('/categories', [AdminCategoriesController::class, 'store']);
-    Route::put('/categories/{id}', [AdminCategoriesController::class, 'update']);
-    Route::delete('/categories/{id}', [AdminCategoriesController::class, 'destroy']);
-    // Customers
-    Route::get('/customers', [AdminCustomersController::class, 'index']);
-    Route::get('/customers/{id}', [AdminCustomersController::class, 'show']);	
-    // Orders
-    Route::get('/orders', [AdminOrderController::class, 'index']);
-    Route::get('/orders/{id}', [AdminOrderController::class, 'show']);
-    Route::post('/orders/{id}/status', [AdminOrderController::class, 'updateStatus']);
-    // Payments
-    Route::get('/payments', [AdminPaymentsController::class, 'index']);
-    Route::get('/payments/{id}', [AdminPaymentsController::class, 'show']);
-    // Notifications
-   Route::get('/notifications', [AdminNotificationsController::class, 'index']);
-   Route::post('/notifications/{id}/read', [AdminNotificationsController::class, 'markRead']);
-    // Reports
-    Route::get('/reports', [AdminReportsController::class, 'index']);
-    // Inventory
-    Route::get('/inventory', [InventoryController::class, 'index']);
-    Route::post('/inventory', [InventoryController::class, 'store']);
-});
+        Route::post(
+            '/products/{id}/images',
+            [ProductController::class, 'uploadImage']
+        );
+
+        // Categories
+        Route::get('/categories', [AdminCategoriesController::class, 'index']);
+        Route::post('/categories', [AdminCategoriesController::class, 'store']);
+        Route::put('/categories/{id}', [AdminCategoriesController::class, 'update']);
+        Route::delete('/categories/{id}', [AdminCategoriesController::class, 'destroy']);
+
+        // Customers
+        Route::get('/customers', [AdminCustomersController::class, 'index']);
+        Route::get('/customers/{id}', [AdminCustomersController::class, 'show']);
+
+        // Orders
+        Route::get('/orders', [AdminOrderController::class, 'index']);
+        Route::get('/orders/{id}', [AdminOrderController::class, 'show']);
+        Route::post('/orders/{id}/status', [AdminOrderController::class, 'updateStatus']);
+
+        // Payments
+        Route::get('/payments', [AdminPaymentsController::class, 'index']);
+        Route::get('/payments/{id}', [AdminPaymentsController::class, 'show']);
+
+        // Notifications
+        Route::get('/notifications', [AdminNotificationsController::class, 'index']);
+        Route::post('/notifications/{id}/read', [AdminNotificationsController::class, 'markRead']);
+
+        // Reports
+        Route::get('/reports', [AdminReportsController::class, 'index']);
+        Route::get('/reports/daily', [AdminReportsController::class, 'dailySales']);
+        Route::get('/reports/monthly', [AdminReportsController::class, 'monthlySales']);
+
+        // Inventory
+        Route::get('/inventory', [InventoryController::class, 'index']);
+        Route::post('/inventory', [InventoryController::class, 'store']);
+    });
+
