@@ -17,26 +17,26 @@ class AuthController extends Controller
      */
     public function register(Request $request)
     {
-        $v = Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:users,email',
+            'email' => 'required|email|max:255|unique:users,email',
             'phone' => 'required|string|max:50',
             'password' => 'required|string|min:8|confirmed',
         ]);
 
-        if ($v->fails()) {
+        if ($validator->fails()) {
             return response()->json([
                 'message' => 'Please correct the information provided.',
-                'errors' => $v->errors(),
+                'errors' => $validator->errors(),
             ], 422);
         }
 
         try {
             $user = User::create([
-                'name' => trim($request->name),
-                'email' => strtolower(trim($request->email)),
-                'phone' => trim($request->phone),
-                'password' => Hash::make($request->password),
+                'name' => trim($request->input('name')),
+                'email' => strtolower(trim($request->input('email'))),
+                'phone' => trim($request->input('phone')),
+                'password' => Hash::make($request->input('password')),
                 'role' => 'customer',
             ]);
 
@@ -56,11 +56,19 @@ class AuthController extends Controller
                 'email_verified' => false,
             ], 201);
         } catch (Throwable $e) {
+            // Write the exception to Render's captured server error output.
+            error_log(
+                '[WAGI REGISTRATION ERROR] ' .
+                get_class($e) . ': ' . $e->getMessage()
+            );
+
+            // Also record it through Laravel's configured logger.
             Log::error('Customer registration failed', [
                 'exception' => get_class($e),
                 'message' => $e->getMessage(),
             ]);
 
+            // Keep detailed exception information private.
             return response()->json([
                 'message' => 'Registration failed. Please try again later.',
             ], 500);
@@ -72,24 +80,28 @@ class AuthController extends Controller
      */
     public function login(Request $request)
     {
-        $v = Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), [
             'email' => 'required|email',
             'password' => 'required|string',
             'device_name' => 'sometimes|string',
         ]);
 
-        if ($v->fails()) {
+        if ($validator->fails()) {
             return response()->json([
-                'errors' => $v->errors(),
+                'message' => 'Please check your login information.',
+                'errors' => $validator->errors(),
             ], 422);
         }
 
         $user = User::where(
             'email',
-            strtolower(trim($request->email))
+            strtolower(trim($request->input('email')))
         )->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (
+            !$user ||
+            !Hash::check($request->input('password'), $user->password)
+        ) {
             return response()->json([
                 'message' => 'Invalid credentials',
             ], 401);
@@ -116,7 +128,15 @@ class AuthController extends Controller
      */
     public function logout(Request $request)
     {
-        $token = $request->user()->currentAccessToken();
+        $user = $request->user();
+
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated.',
+            ], 401);
+        }
+
+        $token = $user->currentAccessToken();
 
         if ($token) {
             $token->delete();
@@ -158,26 +178,33 @@ class AuthController extends Controller
      */
     public function changePassword(Request $request)
     {
-        $v = Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), [
             'current_password' => 'required|string',
             'new_password' => 'required|string|min:8|confirmed',
         ]);
 
-        if ($v->fails()) {
+        if ($validator->fails()) {
             return response()->json([
-                'errors' => $v->errors(),
+                'message' => 'Please correct the information provided.',
+                'errors' => $validator->errors(),
             ], 422);
         }
 
         $user = $request->user();
 
-        if (!Hash::check($request->current_password, $user->password)) {
+        if (!Hash::check(
+            $request->input('current_password'),
+            $user->password
+        )) {
             return response()->json([
                 'message' => 'Current password is incorrect',
             ], 403);
         }
 
-        $user->password = Hash::make($request->new_password);
+        $user->password = Hash::make(
+            $request->input('new_password')
+        );
+
         $user->save();
 
         return response()->json([
