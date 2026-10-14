@@ -31,6 +31,17 @@ use App\Http\Controllers\WishlistController;
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
 
+// Email verification
+Route::post(
+    '/auth/resend-verification',
+    [AuthController::class, 'resendVerificationEmail']
+);
+
+Route::post(
+    '/auth/complete-email-verification',
+    [AuthController::class, 'completeEmailVerification']
+);
+
 // Password reset
 Route::post('/auth/forgot-password', [PasswordResetController::class, 'forgot']);
 Route::post('/auth/verify-reset-code', [PasswordResetController::class, 'verifyCode']);
@@ -181,4 +192,3 @@ Route::prefix('admin')
         Route::get('/inventory', [InventoryController::class, 'index']);
         Route::post('/inventory', [InventoryController::class, 'store']);
     });
-

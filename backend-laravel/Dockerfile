@@ -70,4 +70,4 @@ RUN sed -i 's/^Listen 80$/Listen 10000/' /etc/apache2/ports.conf \
 
 EXPOSE 10000
 
-CMD ["apache2-foreground"]
+CMD ["sh", "-c", "php artisan migrate --path=database/migrations/2026_10_14_130000_create_email_verification_handoffs_table.php --force && exec apache2-foreground"]

@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\ResendEmailService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -25,7 +25,7 @@ class PasswordResetController extends Controller
 
         $email = strtolower(trim($request->email));
 
-        // Remove any previous unused codes for this email.
+        // Remove previous unused codes for this email.
         \DB::table('password_reset_codes')
             ->where('email', $email)
             ->whereNull('used_at')
@@ -44,16 +44,41 @@ class PasswordResetController extends Controller
             'updated_at' => now(),
         ]);
 
-        Mail::raw(
-            "Your WAGI - STATIONARIES password reset verification code is: {$code}\n\n"
-            . "This code will expire in 10 minutes.\n\n"
-            . "If you did not request a password reset, you can ignore this email.",
-            function ($message) use ($email) {
-                $message
-                    ->to($email)
-                    ->subject('WAGI Password Reset Verification Code');
-            }
-        );
+        $html = '
+            <h2>WAGI - STATIONARIES Password Reset</h2>
+            <p>Your password reset verification code is:</p>
+            <p style="font-size:28px;font-weight:bold;letter-spacing:4px;">'
+                . e($code) .
+            '</p>
+            <p>This code will expire in 10 minutes.</p>
+            <p>If you did not request a password reset, you can ignore this email.</p>
+        ';
+
+        try {
+            app(ResendEmailService::class)->send(
+                $email,
+                'WAGI Password Reset Verification Code',
+                $html
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error(
+                'WAGI password reset email failed',
+                [
+                    'exception' => get_class($e),
+                    'message' => $e->getMessage(),
+                ]
+            );
+
+            // Remove the unusable code if delivery could not be requested.
+            \DB::table('password_reset_codes')
+                ->where('email', $email)
+                ->whereNull('used_at')
+                ->delete();
+
+            return response()->json([
+                'message' => 'Unable to send the password reset email. Please try again later.',
+            ], 503);
+        }
 
         return response()->json([
             'message' => 'Password reset verification code sent to your email.'
@@ -153,9 +178,7 @@ class PasswordResetController extends Controller
         }
 
         $user->password = Hash::make($request->password);
-
         $user->setRememberToken(Str::random(60));
-
         $user->save();
 
         // Mark the verification code as used.

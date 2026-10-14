@@ -2,8 +2,8 @@
 
 namespace App\Notifications;
 
+use App\Notifications\Channels\ResendChannel;
 use Illuminate\Bus\Queueable;
-use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\URL;
 
@@ -13,27 +13,40 @@ class VerifyEmailNotification extends Notification
 
     public function via($notifiable): array
     {
-        return ['mail'];
+        return [ResendChannel::class];
     }
 
-    public function toMail($notifiable): MailMessage
+    public function toResend($notifiable): array
     {
         $verificationUrl = URL::temporarySignedRoute(
             'verification.verify',
             now()->addMinutes(60),
             [
                 'id' => $notifiable->getKey(),
-                'hash' => sha1($notifiable->getEmailForVerification()),
+                'hash' => sha1(
+                    $notifiable->getEmailForVerification()
+                ),
             ]
         );
 
-        return (new MailMessage)
-            ->subject('Verify your WAGI email address')
-            ->greeting('Welcome to WAGI - STATIONARIES!')
-            ->line('Thank you for creating your WAGI customer account.')
-            ->line('Please confirm your email address by clicking the button below.')
-            ->action('Verify Email Address', $verificationUrl)
-            ->line('This verification link will expire in 60 minutes.')
-            ->line('If you did not create a WAGI account, you can ignore this email.');
+        $html = '
+            <h2>Welcome to WAGI - STATIONARIES!</h2>
+            <p>Thank you for creating your WAGI customer account.</p>
+            <p>Please confirm your email address by clicking below.</p>
+            <p>
+                <a href="' . e($verificationUrl) . '"
+                   style="display:inline-block;padding:12px 20px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;">
+                    Verify Email Address
+                </a>
+            </p>
+            <p>This verification link will expire in 60 minutes.</p>
+            <p>If you did not create a WAGI account, you can ignore this email.</p>
+        ';
+
+        return [
+            'to' => $notifiable->getEmailForVerification(),
+            'subject' => 'Verify your WAGI email address',
+            'html' => $html,
+        ];
     }
 }
