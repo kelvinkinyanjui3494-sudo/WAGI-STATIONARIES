@@ -44,10 +44,11 @@ class AuthController extends Controller
             try {
                 $user->notify(new VerifyEmailNotification());
             } catch (Throwable $e) {
-                Log::error('Customer verification email failed', [
-                    'user_id' => $user->id,
-                    'exception' => get_class($e),
-                ]);
+               Log::error('Customer verification email failed', [
+    'user_id' => $user->id,
+    'exception' => get_class($e),
+    'error' => $e->getMessage(),
+]);
 
                 return response()->json([
                     'message' => 'Your account was created but the verification email could not be sent. Please use the resend verification option.',
