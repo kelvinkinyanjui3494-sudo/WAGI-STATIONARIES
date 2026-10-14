@@ -106,9 +106,10 @@ class AuthController extends Controller
                 $user->notify(new VerifyEmailNotification());
             } catch (Throwable $e) {
                 Log::error('Resend verification email failed', [
-                    'user_id' => $user->id,
-                    'exception' => get_class($e),
-                ]);
+    'user_id' => $user->id,
+    'exception' => get_class($e),
+    'error' => $e->getMessage(),
+]);
             }
         }
 
