@@ -33,29 +33,43 @@ function CategoriesPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    void (async () => {
+    let cancelled = false;
+
+    async function loadCategories() {
       try {
-        const [categoryResponse, productResponse] = await Promise.all([
-          apiFetch<{
-            data: Category[];
-            current_page: number;
-            last_page: number;
-            total: number;
-          }>("/categories"),
+        const response = await apiFetch<{
+          data: Category[];
+          current_page: number;
+          last_page: number;
+          total: number;
+        }>("/categories?per_page=100");
 
-          apiFetch<{
-            data: Product[];
-            current_page: number;
-            last_page: number;
-            total: number;
-          }>("/products?per_page=1000"),
-        ]);
+        if (!cancelled) {
+          setCategories(response.data ?? []);
+        }
+      } catch (error) {
+        console.error("Failed to load categories:", error);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
 
-        setCategories(categoryResponse.data ?? []);
+    async function loadProductCounts() {
+      try {
+        const response = await apiFetch<{
+          data: Product[];
+          current_page: number;
+          last_page: number;
+          total: number;
+        }>("/products?per_page=1000");
+
+        if (cancelled) return;
 
         const map: Record<number, number> = {};
 
-        for (const product of productResponse.data ?? []) {
+        for (const product of response.data ?? []) {
           if (product.category_id !== null) {
             map[product.category_id] =
               (map[product.category_id] ?? 0) + 1;
@@ -64,13 +78,16 @@ function CategoriesPage() {
 
         setCounts(map);
       } catch (error) {
-        console.error("Failed to load categories:", error);
-        setCategories([]);
-        setCounts({});
-      } finally {
-        setLoading(false);
+        console.error("Failed to load product counts:", error);
       }
-    })();
+    }
+
+    void loadCategories();
+    void loadProductCounts();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -99,9 +116,9 @@ function CategoriesPage() {
         </div>
       ) : categories.length === 0 ? (
         <div className="mt-6 rounded-2xl border bg-card p-8 text-center">
-          <p className="font-semibold">No categories found</p>
+          <p className="font-semibold">Unable to load categories</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            There are currently no stationery categories available.
+            Please refresh the page and try again.
           </p>
         </div>
       ) : (
