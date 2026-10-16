@@ -17,7 +17,7 @@ class ProductController extends Controller
     {
         $query = Product::query();
 
-        // Search
+        // Search by product name or SKU.
         if ($request->filled('q')) {
             $q = $request->query('q');
 
@@ -27,7 +27,7 @@ class ProductController extends Controller
             });
         }
 
-        // Category filter
+        // Category filter.
         if ($request->filled('category')) {
             $query->where(
                 'category_id',
@@ -35,7 +35,7 @@ class ProductController extends Controller
             );
         }
 
-        // Minimum price
+        // Minimum price.
         if ($request->filled('min')) {
             $query->where(
                 'price',
@@ -44,7 +44,7 @@ class ProductController extends Controller
             );
         }
 
-        // Maximum price
+        // Maximum price.
         if ($request->filled('max')) {
             $query->where(
                 'price',
@@ -53,12 +53,12 @@ class ProductController extends Controller
             );
         }
 
-        // In-stock filter
+        // In-stock filter.
         if ($request->boolean('inStock')) {
             $query->where('stock_qty', '>', 0);
         }
 
-        // Sorting
+        // Sorting.
         switch ($request->query('sort', 'newest')) {
             case 'price_asc':
                 $query->orderBy('price', 'asc');
@@ -69,9 +69,6 @@ class ProductController extends Controller
                 break;
 
             case 'rating':
-                $query->orderBy('rating', 'desc');
-                break;
-
             case 'popular':
                 $query->orderBy('rating', 'desc');
                 break;
@@ -83,10 +80,7 @@ class ProductController extends Controller
         }
 
         $perPage = min(
-            max(
-                (int) $request->query('per_page', 12),
-                1
-            ),
+            max((int) $request->query('per_page', 12), 1),
             100
         );
 
@@ -95,7 +89,7 @@ class ProductController extends Controller
                 'images' => function ($query) {
                     $query->orderByDesc('is_primary')
                         ->orderBy('id');
-                }
+                },
             ])
             ->paginate($perPage);
 
@@ -103,9 +97,7 @@ class ProductController extends Controller
     }
 
     /**
-     * Show a single product.
-     *
-     * Works with either numeric ID or slug.
+     * Show a single product by ID or slug.
      */
     public function show($id)
     {
@@ -180,15 +172,10 @@ class ProductController extends Controller
     }
 
     /**
-     * Admin: upload a product image.
+     * Admin: upload a product image to Cloudinary.
      *
-     * Images are stored on Laravel's public disk:
-     *
-     * storage/app/public/products/{sku}/filename
-     *
-     * The public/storage symbolic link exposes these files through:
-     *
-     * http://127.0.0.1:8000/storage/...
+     * The database continues to store the image path and URL
+     * in the existing ProductImage table.
      */
     public function uploadImage(Request $request, $id)
     {
@@ -202,16 +189,8 @@ class ProductController extends Controller
 
         $file = $request->file('image');
 
-        /*
-         * Use the product SKU as the storage folder.
-         * This keeps images organized and matches the existing
-         * database paths such as products/NOTE-BOOK-001/...
-         */
+        // Create a safe folder name based on the product SKU.
         $sku = $product->sku ?: 'product_' . $product->id;
-
-        /*
-         * Keep the folder name safe for Windows/Linux filesystems.
-         */
         $folderName = Str::slug($sku);
 
         if ($folderName === '') {
@@ -220,54 +199,64 @@ class ProductController extends Controller
 
         $directory = "products/{$folderName}";
 
-        /*
-         * Create a unique filename.
-         */
+        // Generate a unique filename.
         $extension = strtolower(
             $file->getClientOriginalExtension()
         );
 
         $filename = now()->format('YmdHis')
-            . '_' .
-            Str::random(12)
-            . '.' .
-            $extension;
+            . '_'
+            . Str::random(12)
+            . '.'
+            . $extension;
 
-        /*
-         * Store the actual file on Laravel's public disk.
-         */
-        $storedPath = $file->storeAs(
-            $directory,
-            $filename,
-            'public'
-        );
+        $storedPath = null;
 
-        if (!$storedPath) {
+        try {
+            // Store the image on Cloudinary, not Render's local disk.
+            $storedPath = $file->storeAs(
+                $directory,
+                $filename,
+                'cloudinary'
+            );
+
+            if (!$storedPath) {
+                return response()->json([
+                    'message' => 'The image could not be uploaded.',
+                ], 500);
+            }
+
+            // Obtain the secure URL from Cloudinary.
+            $url = Storage::disk('cloudinary')->url($storedPath);
+
+            if (
+                !is_string($url) ||
+                !str_starts_with($url, 'https://')
+            ) {
+                Storage::disk('cloudinary')->delete($storedPath);
+
+                return response()->json([
+                    'message' => 'Cloudinary did not return a valid HTTPS image URL.',
+                ], 500);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+
+            // Attempt to clean up the uploaded file if URL retrieval failed.
+            if ($storedPath) {
+                try {
+                    Storage::disk('cloudinary')->delete($storedPath);
+                } catch (\Throwable $cleanupException) {
+                    report($cleanupException);
+                }
+            }
+
             return response()->json([
-                'message' => 'The image could not be saved.',
+                'message' => 'The image could not be uploaded or its URL could not be retrieved. Check the server logs.',
             ], 500);
         }
 
-        /*
-         * Build the public URL explicitly from the running
-         * Laravel application.
-         *
-         * This avoids old localhost URLs being stored in the
-         * database when the API is running on 127.0.0.1:8000.
-         */
-        $url = rtrim(
-            config('app.url', 'http://127.0.0.1:8000'),
-            '/'
-        ) . '/storage/' . ltrim($storedPath, '/');
-
-        /*
-         * If the admin marks this image as primary, remove the
-         * primary flag from every other image first.
-         *
-         * When this is the first image, automatically make it
-         * primary even if the admin did not explicitly send
-         * is_primary.
-         */
+        // Determine whether this image should become the primary image.
         $hasExistingImages = ProductImage::where(
             'product_id',
             $product->id
@@ -286,24 +275,30 @@ class ProductController extends Controller
             ]);
         }
 
-        /*
-         * Save the image record.
-         */
-        $image = ProductImage::create([
-            'product_id' => $product->id,
-            'path' => $storedPath,
-            'url' => $url,
-            'is_primary' => $isPrimary,
-            'alt' => $request->input(
-                'alt',
-                $product->name
-            ),
-        ]);
+        try {
+            // Keep the existing database columns and response format.
+            $image = ProductImage::create([
+                'product_id' => $product->id,
+                'path' => $storedPath,
+                'url' => $url,
+                'is_primary' => $isPrimary,
+                'alt' => $request->input('alt', $product->name),
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
 
-        /*
-         * Return the complete image record so the admin frontend
-         * immediately knows which image was uploaded.
-         */
+            // Remove the uploaded asset if the database save fails.
+            try {
+                Storage::disk('cloudinary')->delete($storedPath);
+            } catch (\Throwable $cleanupException) {
+                report($cleanupException);
+            }
+
+            return response()->json([
+                'message' => 'The image was uploaded, but its database record could not be saved.',
+            ], 500);
+        }
+
         return response()->json([
             'id' => $image->id,
             'product_id' => $image->product_id,
@@ -318,7 +313,10 @@ class ProductController extends Controller
     }
 
     /**
-     * Admin: delete an image.
+     * Admin: delete a product image from its storage location.
+     *
+     * Cloudinary images are deleted from Cloudinary.
+     * Older local images are handled using the public disk.
      */
     public function deleteImage(
         Request $request,
@@ -336,24 +334,32 @@ class ProductController extends Controller
 
         $wasPrimary = (bool) $image->is_primary;
 
-        /*
-         * Delete the actual image file from storage.
-         */
-        if (
-            $image->path &&
-            Storage::disk('public')->exists($image->path)
-        ) {
-            Storage::disk('public')->delete(
-                $image->path
+        if ($image->path) {
+            $isCloudinaryImage = str_starts_with(
+                (string) $image->url,
+                'https://res.cloudinary.com/'
             );
+
+            try {
+                if ($isCloudinaryImage) {
+                    // Do not remove the database row if cloud deletion fails.
+                    Storage::disk('cloudinary')->delete($image->path);
+                } elseif (Storage::disk('public')->exists($image->path)) {
+                    // Preserve support for older local-storage images.
+                    Storage::disk('public')->delete($image->path);
+                }
+            } catch (\Throwable $e) {
+                report($e);
+
+                return response()->json([
+                    'message' => 'The image file could not be deleted. The image record has been retained.',
+                ], 500);
+            }
         }
 
         $image->delete();
 
-        /*
-         * If the deleted image was primary, automatically choose
-         * another remaining image as the new primary image.
-         */
+        // Select another image as primary if the deleted image was primary.
         if ($wasPrimary) {
             $replacement = ProductImage::where(
                 'product_id',
@@ -374,4 +380,3 @@ class ProductController extends Controller
         ]);
     }
 }
-
