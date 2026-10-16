@@ -19,9 +19,9 @@ RUN apt-get update && apt-get install -y \
         gd \
         intl \
         zip \
-    && a2dismod mpm_event mpm_worker 2>/dev/null || true \
-    && a2enmod mpm_prefork rewrite \
-    && rm -rf /var/lib/apt/lists/*
+    && a2dismod mpm_event mpm_worker 2>/dev/null || true
+
+RUN a2enmod mpm_prefork rewrite headers
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
@@ -48,6 +48,15 @@ RUN sed -ri \
     /etc/apache2/apache2.conf \
     /etc/apache2/conf-available/*.conf
 
+# Add CORS headers for the deployed frontends
+RUN printf '%s\n' \
+    'SetEnvIf Origin "^https://(wagi-app|wagi-stationary)\\.netlify\\.app$" CORS_ORIGIN=$0' \
+    'Header always set Access-Control-Allow-Origin "%{CORS_ORIGIN}e" env=CORS_ORIGIN' \
+    'Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" env=CORS_ORIGIN' \
+    'Header always set Access-Control-Allow-Headers "Accept, Authorization, Content-Type, Origin, X-Requested-With, X-XSRF-TOKEN" env=CORS_ORIGIN' \
+    'Header always merge Vary Origin' \
+    >> /etc/apache2/apache2.conf
+
 # Laravel storage and cache permissions
 RUN mkdir -p \
     storage/framework/cache \
@@ -55,15 +64,10 @@ RUN mkdir -p \
     storage/framework/views \
     storage/logs \
     bootstrap/cache \
-    && chown -R www-data:www-data \
-        storage \
-        bootstrap/cache \
-    && chmod -R 775 \
-        storage \
-        bootstrap/cache
+    && chown -R www-data:www-data storage bootstrap/cache \
+    && chmod -R 775 storage bootstrap/cache
 
-# Render provides the PORT environment variable.
-# Configure Apache to listen on that port.
+# Configure Apache to listen on Render's port
 RUN sed -i 's/^Listen 80$/Listen 10000/' /etc/apache2/ports.conf \
     && sed -i 's/<VirtualHost \*:80>/<VirtualHost *:10000>/' \
         /etc/apache2/sites-available/000-default.conf
