@@ -106,38 +106,37 @@ function CheckoutPage() {
 
     const address = profile.address;
 
-setForm((f) => ({
-  ...f,
-  customer_name:
-    f.customer_name ||
-    profile.name ||
-    "",
-  email: f.email || profile.email || "",
-  phone: f.phone || profile.phone || "",
-  alt_phone: f.alt_phone || profile.alt_phone || "",
-  county: address?.county || f.county,
-  town: f.town || address?.town || "",
-  estate: f.estate || address?.estate || "",
-  street: f.street || address?.street || "",
-  building: f.building || address?.building || "",
-  house_number:
-    f.house_number || address?.house_number || "",
-  landmark:
-    f.landmark || address?.nearest_landmark || "",
-}));
+    setForm((f) => ({
+      ...f,
+      customer_name: f.customer_name || profile.name || "",
+      email: f.email || profile.email || "",
+      phone: f.phone || profile.phone || "",
+      alt_phone: f.alt_phone || profile.alt_phone || "",
+      county: address?.county || f.county,
+      town: f.town || address?.town || "",
+      estate: f.estate || address?.estate || "",
+      street: f.street || address?.street || "",
+      building: f.building || address?.building || "",
+      house_number: f.house_number || address?.house_number || "",
+      landmark: f.landmark || address?.nearest_landmark || "",
+    }));
   }, [profile]);
 
+  /*
+   * Calculate delivery fee based on the selected county.
+   * Orders of KSh 5,000 or more qualify for free delivery.
+   */
   const deliveryFee = useMemo(() => {
-    if (!settings) return 0;
-
     const threshold = Number(
-      settings.free_delivery_threshold,
+      settings?.free_delivery_threshold ?? 5000,
     );
 
-    return subtotal >= threshold
-      ? 0
-      : Number(settings.delivery_fee);
-  }, [settings, subtotal]);
+    if (subtotal >= threshold) return 0;
+
+    return form.county.trim().toLowerCase() === "nairobi"
+      ? 90
+      : 300;
+  }, [settings, subtotal, form.county]);
 
   const discount = useMemo(() => {
     if (!coupon) return 0;
@@ -187,9 +186,7 @@ setForm((f) => ({
     setCheckingCoupon(false);
 
     if (!data) {
-      toast.error(
-        "Coupon not found or no longer active",
-      );
+      toast.error("Coupon not found or no longer active");
       return;
     }
 
@@ -201,10 +198,7 @@ setForm((f) => ({
       return;
     }
 
-    if (
-      subtotal <
-      Number(data.min_order_amount)
-    ) {
+    if (subtotal < Number(data.min_order_amount)) {
       toast.error(
         `Spend at least ${formatPrice(
           data.min_order_amount,
@@ -221,12 +215,13 @@ setForm((f) => ({
   /*
    * Place the order through Laravel.
    *
-   * Laravel is now responsible for:
+   * Laravel is responsible for:
    * - creating the order
    * - creating order items
    * - creating the payment record
    * - clearing the Laravel cart
    * - reducing/reserving stock
+   * - calculating the authoritative delivery fee
    */
   const placeOrder = async () => {
     if (activeLines.length === 0) {
@@ -234,9 +229,7 @@ setForm((f) => ({
       return;
     }
 
-    const phone = normalizeKenyanPhone(
-      form.phone,
-    );
+    const phone = normalizeKenyanPhone(form.phone);
 
     if (
       !form.customer_name.trim() ||
@@ -263,28 +256,17 @@ setForm((f) => ({
         method: "POST",
         body: JSON.stringify({
           payment_method: paymentMethod,
-
-          delivery_fee: deliveryFee,
-
           tax,
-
-          coupon_code:
-            coupon?.code ?? null,
-
+          coupon_code: coupon?.code ?? null,
           address: {
             county: form.county,
             town: form.town.trim(),
-            estate:
-              form.estate.trim() || null,
-            street:
-              form.street.trim() || null,
-            house_number:
-              form.house_number.trim() || null,
-            nearest_landmark:
-              form.landmark.trim() || null,
+            estate: form.estate.trim() || null,
+            street: form.street.trim() || null,
+            house_number: form.house_number.trim() || null,
+            nearest_landmark: form.landmark.trim() || null,
             instructions:
-              form.delivery_instructions.trim() ||
-              null,
+              form.delivery_instructions.trim() || null,
           },
         }),
       });
@@ -324,10 +306,7 @@ setForm((f) => ({
           Your cart is empty
         </h1>
 
-        <Button
-          asChild
-          className="mt-5 rounded-full"
-        >
+        <Button asChild className="mt-5 rounded-full">
           <Link to="/products">
             Browse products
           </Link>
@@ -349,9 +328,7 @@ setForm((f) => ({
       <Label htmlFor={id}>
         {label}{" "}
         {opts.required && (
-          <span className="text-destructive">
-            *
-          </span>
+          <span className="text-destructive">*</span>
         )}
       </Label>
 
@@ -399,10 +376,7 @@ setForm((f) => ({
                 placeholder: "07XX XXX XXX",
               })}
 
-              {field(
-                "alt_phone",
-                "Alternative phone",
-              )}
+              {field("alt_phone", "Alternative phone")}
             </div>
           </section>
 
@@ -415,9 +389,7 @@ setForm((f) => ({
               <div className="space-y-1.5">
                 <Label htmlFor="county">
                   County{" "}
-                  <span className="text-destructive">
-                    *
-                  </span>
+                  <span className="text-destructive">*</span>
                 </Label>
 
                 <Select
@@ -434,16 +406,11 @@ setForm((f) => ({
                   </SelectTrigger>
 
                   <SelectContent className="max-h-72">
-                    {KENYAN_COUNTIES.map(
-                      (c) => (
-                        <SelectItem
-                          key={c}
-                          value={c}
-                        >
-                          {c}
-                        </SelectItem>
-                      ),
-                    )}
+                    {KENYAN_COUNTIES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -456,20 +423,11 @@ setForm((f) => ({
 
               {field("street", "Street")}
 
-              {field(
-                "building",
-                "Building / apartment",
-              )}
+              {field("building", "Building / apartment")}
 
-              {field(
-                "house_number",
-                "House number",
-              )}
+              {field("house_number", "House number")}
 
-              {field(
-                "landmark",
-                "Nearest landmark",
-              )}
+              {field("landmark", "Nearest landmark")}
             </div>
 
             <div className="mt-4 space-y-1.5">
@@ -480,14 +438,11 @@ setForm((f) => ({
               <Textarea
                 id="delivery_instructions"
                 maxLength={500}
-                value={
-                  form.delivery_instructions
-                }
+                value={form.delivery_instructions}
                 onChange={(e) =>
                   setForm((f) => ({
                     ...f,
-                    delivery_instructions:
-                      e.target.value,
+                    delivery_instructions: e.target.value,
                   }))
                 }
                 placeholder="e.g. Call when you reach the gate"
@@ -503,9 +458,7 @@ setForm((f) => ({
             <RadioGroup
               value={paymentMethod}
               onValueChange={(v) =>
-                setPaymentMethod(
-                  v as typeof paymentMethod,
-                )
+                setPaymentMethod(v as typeof paymentMethod)
               }
               className="mt-4 space-y-3"
             >
@@ -548,8 +501,7 @@ setForm((f) => ({
                   <span className="mt-1 block text-sm text-muted-foreground">
                     Automatic STK push is on the way. For now, send payment to{" "}
                     <strong>
-                      {settings?.mpesa_phone ??
-                        STORE.mpesaPhone}
+                      {settings?.mpesa_phone ?? STORE.mpesaPhone}
                     </strong>{" "}
                     and we will confirm your order.
                   </span>
@@ -588,8 +540,7 @@ setForm((f) => ({
 
                 <span className="text-xs font-semibold">
                   {formatPrice(
-                    Number(l.product.price) *
-                      l.quantity,
+                    Number(l.product.price) * l.quantity,
                   )}
                 </span>
               </div>
@@ -601,9 +552,7 @@ setForm((f) => ({
           <div className="flex gap-2">
             <Input
               value={couponCode}
-              onChange={(e) =>
-                setCouponCode(e.target.value)
-              }
+              onChange={(e) => setCouponCode(e.target.value)}
               placeholder="Coupon code"
               aria-label="Coupon code"
             />
@@ -626,9 +575,7 @@ setForm((f) => ({
             {discount > 0 && (
               <Row
                 label="Discount"
-                value={`- ${formatPrice(
-                  discount,
-                )}`}
+                value={`- ${formatPrice(discount)}`}
               />
             )}
 
@@ -637,9 +584,7 @@ setForm((f) => ({
               value={
                 deliveryFee === 0
                   ? "Free"
-                  : formatPrice(
-                      deliveryFee,
-                    )
+                  : formatPrice(deliveryFee)
               }
             />
 

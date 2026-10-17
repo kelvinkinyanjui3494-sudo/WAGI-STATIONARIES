@@ -44,3 +44,6 @@ dist-ssr
 
 # Local source backup
 src.before-supabase-removal/
+
+# Local Netlify folder
+.netlify

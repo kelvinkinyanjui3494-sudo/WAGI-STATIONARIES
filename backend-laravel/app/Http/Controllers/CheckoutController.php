@@ -24,11 +24,12 @@ class CheckoutController extends Controller
     |
     | Delivery rules:
     |
-    |   Subtotal < KES 5,000  = KES 300 delivery
+    |   Nairobi, subtotal < KES 5,000  = KES 90 delivery
+    |   Other counties, subtotal < KES 5,000 = KES 300 delivery
     |   Subtotal >= KES 5,000 = FREE delivery
     |
-    | The delivery fee is calculated by the backend and is never trusted
-    | from the customer's request.
+    | The backend calculates delivery fees and does not trust fees supplied
+    | by the customer.
     |
     */
 
@@ -36,9 +37,7 @@ class CheckoutController extends Controller
     {
         $v = Validator::make($request->all(), [
             'payment_method' => 'required|string|in:mpesa,cod',
-
             'tax' => 'sometimes|numeric|min:0',
-
             'coupon_code' => 'sometimes|string|nullable',
 
             'address' => 'required|array',
@@ -140,31 +139,29 @@ class CheckoutController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Delivery fee
+        | Calculate delivery fee
         |--------------------------------------------------------------------------
         |
-        | IMPORTANT:
-        | We deliberately do NOT read delivery_fee from the customer's
-        | request.
-        |
-        | This prevents someone from changing the delivery fee to 0
-        | through the browser.
+        | The customer cannot override the delivery fee through the request.
         |
         */
 
         $freeDeliveryThreshold = 5000;
-        $standardDeliveryFee = 300;
+
+        $county = strtolower(trim(
+            (string) $request->input('address.county', '')
+        ));
 
         $deliveryFee = $subtotal >= $freeDeliveryThreshold
             ? 0
-            : $standardDeliveryFee;
+            : ($county === 'nairobi' ? 90 : 300);
 
         /*
         |--------------------------------------------------------------------------
         | Tax
         |--------------------------------------------------------------------------
         |
-        | Tax is currently accepted from the frontend because your current
+        | Tax is currently accepted from the frontend because the current
         | store settings use a zero tax rate.
         |
         */
@@ -303,7 +300,7 @@ class CheckoutController extends Controller
 
                 /*
                 |--------------------------------------------------------------------------
-                | Current product price
+                | Determine current effective price
                 |--------------------------------------------------------------------------
                 */
 
@@ -372,7 +369,7 @@ class CheckoutController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | Clear cart only after successful order creation
+            | Clear cart after successful order creation
             |--------------------------------------------------------------------------
             */
 
@@ -381,22 +378,20 @@ class CheckoutController extends Controller
 
             DB::commit();
 
-/*
-|--------------------------------------------------------------------------
-| Notify administrators about the new order
-|--------------------------------------------------------------------------
-*/
+            /*
+            |--------------------------------------------------------------------------
+            | Notify administrators about the new order
+            |--------------------------------------------------------------------------
+            */
 
-User::where('role', 'admin')
-    ->get()
-    ->each(function ($admin) use ($order) {
-        $admin->notify(
-            new \App\Notifications\NewOrderNotification($order)
-        );
-    });
-
-} catch (\Throwable $e) {
-
+            User::where('role', 'admin')
+                ->get()
+                ->each(function ($admin) use ($order) {
+                    $admin->notify(
+                        new \App\Notifications\NewOrderNotification($order)
+                    );
+                });
+        } catch (\Throwable $e) {
             DB::rollBack();
 
             \Log::error('Checkout failed', [
