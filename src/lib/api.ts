@@ -38,15 +38,19 @@ export async function apiFetch<T>(
     headers: finalHeaders,
   });
 
-  let data: unknown = null;
+  
+const responseText = await response.text();
 
-  const contentType = response.headers.get("content-type");
+let data: unknown = responseText;
 
-  if (contentType?.includes("application/json")) {
-    data = await response.json();
-  } else {
-    data = await response.text();
+if (responseText.length > 0) {
+  try {
+    data = JSON.parse(responseText) as unknown;
+  } catch {
+    data = responseText;
   }
+}
+
 
   if (!response.ok) {
     const message =
